@@ -1,6 +1,5 @@
 import { Component } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
-import { Message } from '@jirakli/api-interfaces';
+import { AuthService } from '@auth0/auth0-angular';
 
 @Component({
   selector: 'jirakli-root',
@@ -8,6 +7,8 @@ import { Message } from '@jirakli/api-interfaces';
   styleUrls: ['./app.component.scss'],
 })
 export class AppComponent {
-  hello$ = this.http.get<Message>('/api/hello');
-  constructor(private http: HttpClient) {}
+  constructor(public auth: AuthService) {}
+  loginWithRedirect(): void {
+    this.auth.loginWithRedirect();
+  }
 }

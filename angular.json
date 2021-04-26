@@ -49,7 +49,9 @@
             "aot": true,
             "assets": [
               "apps/jirakli/src/favicon.ico",
-              "apps/jirakli/src/assets"
+              "apps/jirakli/src/assets",
+              "apps/jirakli/src/environment.json",
+              "apps/jirakli/src/auth_config.json"
             ],
             "styles": ["apps/jirakli/src/styles.scss"],
             "scripts": []
