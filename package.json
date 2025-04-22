@@ -64,9 +64,12 @@
     "@nestjs/common": "^10.0.2",
     "@nestjs/core": "^10.0.2",
     "@nestjs/platform-express": "^10.0.2",
+    "@nestjs/typeorm": "^11.0.0",
     "axios": "^1.6.0",
+    "pg": "^8.14.1",
     "reflect-metadata": "^0.1.13",
     "rxjs": "~7.8.0",
+    "typeorm": "^0.3.22",
     "zone.js": "~0.15.0"
   }
 }
