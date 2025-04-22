@@ -1,0 +1,28 @@
+{
+  "name": "shared-utils",
+  "$schema": "../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "shared-utils/src",
+  "projectType": "library",
+  "tags": [],
+  "targets": {
+    "build": {
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/shared-utils",
+        "main": "shared-utils/src/index.ts",
+        "tsConfig": "shared-utils/tsconfig.lib.json",
+        "assets": ["shared-utils/*.md"],
+        "format": ["cjs"],
+        "generatePackageJson": true
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "shared-utils/jest.config.ts"
+      }
+    }
+  }
+}
