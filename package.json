@@ -2,7 +2,14 @@
   "name": "@jirakli/source",
   "version": "0.0.0",
   "license": "MIT",
-  "scripts": {},
+  "scripts": {
+    "build:backend": "nx build backend",
+    "build:frontend": "nx build frontend",
+    "start:backend": "nx serve backend",
+    "start:frontend": "nx serve frontend",
+    "build:all": "nx build backend && nx build frontend",
+    "start:all": "nx serve backend && nx serve frontend"
+  },
   "private": true,
   "devDependencies": {
     "@angular-devkit/build-angular": "~19.2.0",
