@@ -1,0 +1,355 @@
+# Jirakli Project Conventions
+
+Project-specific rules and patterns for the Jirakli codebase.
+
+## Project Structure
+
+```
+jirakli/
+├── package.json              # pnpm workspace root
+├── pnpm-workspace.yaml
+├── docker-compose.yml
+├── Dockerfile
+├── .env.example
+├── packages/
+│   ├── client/               # Angular 17+ application
+│   ├── server/               # NestJS application
+│   └── shared/               # Shared types, schemas, constants
+└── data/                     # SQLite database (gitignored)
+```
+
+## Shared Package Usage
+
+### Import Pattern
+```typescript
+// Always import from @jirakli/shared
+import { Ticket, CreateTicketDto, TICKET_STATUS } from '@jirakli/shared';
+
+// Never import directly from shared package internals
+// Bad: import { Ticket } from '@jirakli/shared/src/schemas/ticket';
+```
+
+### What Goes in Shared
+- Drizzle schemas and types
+- Zod validation schemas
+- DTOs (used by both client and server)
+- Constants and enums
+- Utility types
+
+### What Doesn't Go in Shared
+- Business logic
+- Services
+- Angular/NestJS specific code
+- Environment configuration
+
+## API Conventions
+
+### URL Structure
+```
+/api/v1/auth/*           # Authentication
+/api/v1/users/*          # User management
+/api/v1/projects/*       # Projects
+/api/v1/projects/:id/tickets/*  # Tickets (nested under project)
+/api/v1/tickets/:id/*    # Direct ticket access (for updates/deletes)
+/api/v1/tickets/:id/comments/*  # Comments
+```
+
+### Response Format
+```typescript
+// Success (single item)
+{
+  "data": { /* entity */ }
+}
+
+// Success (list)
+{
+  "data": [ /* entities */ ],
+  "pagination": {
+    "page": 1,
+    "pageSize": 20,
+    "total": 100,
+    "totalPages": 5
+  }
+}
+
+// Error
+{
+  "statusCode": 400,
+  "message": "Validation failed",
+  "errors": [
+    { "field": "title", "message": "Title is required" }
+  ],
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
+
+### HTTP Status Codes
+- `200` - Success (GET, PATCH)
+- `201` - Created (POST)
+- `204` - No Content (DELETE)
+- `400` - Bad Request (validation errors)
+- `401` - Unauthorized (not logged in)
+- `403` - Forbidden (logged in but not allowed)
+- `404` - Not Found
+- `409` - Conflict (e.g., duplicate email)
+- `500` - Internal Server Error
+
+## Naming Conventions
+
+### Ticket Numbers
+Format: `{PROJECT_KEY}-{NUMBER}`
+- Example: `JIR-42`, `PROJ-123`
+- Numbers are sequential within a project
+- Keys are uppercase, 2-6 characters
+
+### IDs
+- All IDs are UUIDs (stored as text in SQLite)
+- Generate with `crypto.randomUUID()`
+- Never use auto-increment IDs
+
+### Timestamps
+- Store as Unix milliseconds (`integer` in SQLite)
+- Use `Date` objects in TypeScript
+- Return as ISO 8601 strings in API responses
+
+## Error Handling
+
+### Service Layer
+```typescript
+// Throw NestJS built-in exceptions
+throw new NotFoundException(`Ticket "${id}" not found`);
+throw new BadRequestException('Invalid status transition');
+throw new ForbiddenException('You cannot edit this ticket');
+throw new ConflictException('Email already registered');
+
+// Include context in message
+throw new NotFoundException(`Project with key "${key}" not found`);
+```
+
+### Repository Layer
+```typescript
+// Return null for not found, let service decide
+async findById(id: string): Promise<Ticket | null> {
+  // ...
+  return result[0] ?? null;
+}
+
+// Service handles the null
+async getTicket(id: string): Promise<Ticket> {
+  const ticket = await this.repository.findById(id);
+  if (!ticket) {
+    throw new NotFoundException(`Ticket "${id}" not found`);
+  }
+  return ticket;
+}
+```
+
+### Frontend
+```typescript
+// Use Angular's HttpErrorResponse
+this.ticketService.createTicket(dto).pipe(
+  catchError((error: HttpErrorResponse) => {
+    if (error.status === 400) {
+      this.handleValidationErrors(error.error.errors);
+    } else {
+      this.toastService.error('Something went wrong');
+    }
+    return EMPTY;
+  }),
+);
+```
+
+## Authentication
+
+### JWT Structure
+```typescript
+interface JwtPayload {
+  sub: string;        // User ID
+  email: string;
+  iat: number;        // Issued at
+  exp: number;        // Expiration
+}
+```
+
+### Auth Flow
+1. Login: `POST /api/v1/auth/login` → Returns JWT
+2. Client stores JWT in memory (not localStorage for security)
+3. Client sends JWT in `Authorization: Bearer {token}` header
+4. Server validates JWT on protected routes
+
+### Protected Routes
+```typescript
+// Server: Apply guard to controller or specific routes
+@Controller('tickets')
+@UseGuards(JwtAuthGuard)
+export class TicketsController {}
+
+// Client: Use HTTP interceptor to attach token
+```
+
+## State Management (Frontend)
+
+### Use Signals for Component State
+```typescript
+@Component({...})
+export class TicketListComponent {
+  tickets = signal<Ticket[]>([]);
+  loading = signal(false);
+  error = signal<string | null>(null);
+}
+```
+
+### Use Services with Signals for Shared State
+```typescript
+@Injectable({ providedIn: 'root' })
+export class AuthState {
+  private _user = signal<User | null>(null);
+  user = this._user.asReadonly();
+  isAuthenticated = computed(() => this._user() !== null);
+}
+```
+
+### Don't Use NgRx
+For this project's scope, signals + services are sufficient. NgRx adds complexity we don't need.
+
+## Testing Conventions
+
+### File Naming
+```
+ticket.service.ts        → ticket.service.spec.ts
+ticket-list.component.ts → ticket-list.component.spec.ts
+```
+
+### Test Utilities Location
+```
+packages/server/src/test/
+├── utils.ts           # Test helpers
+├── factories.ts       # Entity factories
+└── mocks.ts           # Common mocks
+
+packages/client/src/test/
+├── utils.ts
+├── factories.ts
+└── mocks.ts
+```
+
+### Factory Pattern
+```typescript
+// packages/server/src/test/factories.ts
+export function createMockTicket(overrides: Partial<Ticket> = {}): Ticket {
+  return {
+    id: crypto.randomUUID(),
+    projectId: 'project-1',
+    number: 1,
+    title: 'Test Ticket',
+    status: 'todo',
+    priority: 'medium',
+    reporterId: 'user-1',
+    assigneeId: null,
+    description: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...overrides,
+  };
+}
+```
+
+## Git Conventions
+
+### Branch Naming
+```
+feature/ticket-crud
+fix/login-validation
+refactor/auth-service
+docs/api-readme
+```
+
+### Commit Messages
+```
+feat: add ticket creation endpoint
+fix: correct status transition validation
+refactor: extract ticket repository
+docs: update API documentation
+test: add ticket service unit tests
+chore: update dependencies
+```
+
+### PR Requirements
+- All tests pass
+- No TypeScript errors
+- Follows code style guidelines
+- Has meaningful commit messages
+
+## Environment Configuration
+
+### Required Variables
+```env
+# .env.example
+JWT_SECRET=your-secret-key-min-32-chars
+
+# Optional (defaults shown)
+PORT=3000
+DATABASE_PATH=./data/jirakli.db
+```
+
+### Access in Code
+```typescript
+// Server: Use ConfigService
+@Injectable()
+export class AuthService {
+  constructor(private config: ConfigService) {}
+  
+  private get jwtSecret(): string {
+    return this.config.getOrThrow('JWT_SECRET');
+  }
+}
+
+// Client: Use environment files
+// environments/environment.ts
+export const environment = {
+  apiUrl: '/api/v1',
+};
+```
+
+## Docker Conventions
+
+### Single Container
+The app runs as a single container with:
+- NestJS serving API on `/api/*`
+- NestJS serving static Angular build on `/*`
+- SQLite database in a mounted volume
+
+### Volume Mount
+```bash
+docker run -v jirakli-data:/app/data jirakli
+```
+
+### Health Check
+```
+GET /api/v1/health → { "status": "ok", "timestamp": "..." }
+```
+
+## Performance Guidelines
+
+### Pagination
+- Default page size: 20
+- Max page size: 100
+- Always paginate list endpoints
+
+### Eager Loading
+```typescript
+// Load relations when needed, not by default
+const ticket = await db.query.tickets.findFirst({
+  where: eq(tickets.id, id),
+  with: { 
+    assignee: true,
+    reporter: true,
+    // Only load comments if needed
+  },
+});
+```
+
+### Caching
+Not implemented in MVP. When added:
+- Use in-memory cache for SQLite (it's local anyway)
+- Invalidate on writes

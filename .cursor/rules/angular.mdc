@@ -1,0 +1,494 @@
+# Angular Code Style Guidelines
+
+Based on the [official Angular style guide](https://angular.dev/style-guide).
+
+## File Structure & Naming
+
+### File Naming Conventions
+- **Separate words with hyphens**: `user-profile.ts`, `ticket-list.component.ts`
+- **Tests end with `.spec.ts`**: `user-profile.spec.ts`
+- **Match file name to TypeScript identifier**: `UserProfile` → `user-profile.ts`
+- **Component files share the same name**: `user-profile.ts`, `user-profile.html`, `user-profile.css`
+
+### Avoid Generic File Names
+```typescript
+// Bad
+helpers.ts
+utils.ts
+common.ts
+
+// Good
+date-formatting.ts
+ticket-validators.ts
+api-error-handling.ts
+```
+
+### Project Structure
+```
+src/
+├── main.ts                   # Bootstrap file (required name)
+├── app/
+│   ├── app.component.ts
+│   ├── app.routes.ts
+│   └── [feature-areas]/      # Organize by feature, NOT by type
+```
+
+### Organize by Feature, NOT by Type
+```typescript
+// Bad - grouping by type
+src/
+├── components/
+│   ├── ticket-list.component.ts
+│   └── ticket-card.component.ts
+├── services/
+│   └── ticket.service.ts
+├── directives/
+│   └── highlight.directive.ts
+
+// Good - grouping by feature
+src/
+├── tickets/
+│   ├── ticket-list.component.ts
+│   ├── ticket-list.component.html
+│   ├── ticket-list.component.spec.ts
+│   ├── ticket-card.component.ts
+│   ├── ticket.service.ts
+│   └── highlight.directive.ts
+├── projects/
+│   ├── project-list.component.ts
+│   └── project.service.ts
+```
+
+### One Concept Per File
+- One component, directive, or service per file
+- Keep files small and focused
+- If code doesn't fit a common theme, split into multiple files
+
+## Components
+
+### Component Class Organization
+```typescript
+import { Component, OnInit, OnDestroy, input, output, computed, inject } from '@angular/core';
+import { CommonModule } from '@angular/common';
+
+@Component({
+  selector: 'app-ticket-list',
+  imports: [CommonModule],
+  templateUrl: './ticket-list.component.html',
+  styleUrl: './ticket-list.component.css',
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class TicketListComponent implements OnInit, OnDestroy {
+  // 1. Injected dependencies (using inject function)
+  private readonly ticketService = inject(TicketService);
+  private readonly route = inject(ActivatedRoute);
+
+  // 2. Inputs (readonly)
+  readonly projectId = input.required<string>();
+  readonly initialFilters = input<TicketFilters>();
+
+  // 3. Outputs (readonly)
+  readonly ticketSelected = output<Ticket>();
+
+  // 4. Queries (readonly)
+  readonly ticketCards = viewChildren(TicketCardComponent);
+
+  // 5. Internal state - use protected for template-only members
+  protected tickets = signal<Ticket[]>([]);
+  protected loading = signal(false);
+  protected readonly openTicketCount = computed(() => 
+    this.tickets().filter(t => t.status !== 'done').length
+  );
+
+  // 6. Private properties
+  private readonly destroy$ = new Subject<void>();
+
+  // 7. Lifecycle hooks - implement interfaces, keep simple
+  ngOnInit(): void {
+    this.initializeData();
+    this.setupSubscriptions();
+  }
+
+  ngOnDestroy(): void {
+    this.destroy$.next();
+    this.destroy$.complete();
+  }
+
+  // 8. Protected methods (called from template)
+  protected onTicketClick(ticket: Ticket): void {
+    this.ticketSelected.emit(ticket);
+  }
+
+  // 9. Private methods
+  private initializeData(): void {
+    // Logic extracted from ngOnInit
+  }
+
+  private setupSubscriptions(): void {
+    // Logic extracted from ngOnInit
+  }
+}
+```
+
+### Use `readonly` for Angular-Initialized Properties
+```typescript
+// Inputs, outputs, and queries should be readonly
+readonly userId = input<string>();
+readonly userSaved = output<void>();
+readonly userName = model<string>();
+readonly paymentMethods = viewChildren(PaymentMethodComponent);
+```
+
+### Use `protected` for Template-Only Members
+```typescript
+@Component({
+  template: `<p>{{ fullName() }}</p>`,
+})
+export class UserProfile {
+  readonly firstName = input<string>();
+  readonly lastName = input<string>();
+
+  // Not part of public API, but used in template
+  protected fullName = computed(() => `${this.firstName()} ${this.lastName()}`);
+}
+```
+
+### Lifecycle Hook Interfaces
+```typescript
+// Always implement lifecycle interfaces
+import { Component, OnInit, OnDestroy, AfterViewInit } from '@angular/core';
+
+@Component({/*...*/})
+export class TicketListComponent implements OnInit, OnDestroy, AfterViewInit {
+  ngOnInit(): void {}
+  ngAfterViewInit(): void {}
+  ngOnDestroy(): void {}
+}
+```
+
+### Keep Lifecycle Hooks Simple
+```typescript
+// Bad - complex logic inline
+ngOnInit() {
+  this.logger.setMode('info');
+  this.logger.monitorErrors();
+  this.http.get('/api/tickets').subscribe(/*...*/);
+  this.route.params.pipe(/*...*/).subscribe(/*...*/);
+  // ...20 more lines
+}
+
+// Good - delegate to well-named methods
+ngOnInit() {
+  this.initializeLogging();
+  this.loadTickets();
+  this.watchRouteChanges();
+}
+```
+
+## Dependency Injection
+
+### Prefer `inject()` Over Constructor Injection
+```typescript
+// Preferred
+export class TicketService {
+  private readonly http = inject(HttpClient);
+  private readonly config = inject(ConfigService);
+  private readonly logger = inject(LoggerService);
+}
+
+// Avoid
+export class TicketService {
+  constructor(
+    private readonly http: HttpClient,
+    private readonly config: ConfigService,
+    private readonly logger: LoggerService,
+  ) {}
+}
+```
+
+Benefits of `inject()`:
+- More readable with many dependencies
+- Easier to add comments
+- Better type inference
+- No separation between declaration and initialization
+
+## Templates
+
+### Prefer `class` and `style` Over `ngClass` and `ngStyle`
+```html
+<!-- Preferred -->
+<div [class.admin]="isAdmin" [class.dense]="density === 'high'">
+<div [style.color]="textColor" [style.background-color]="backgroundColor">
+
+<!-- Also acceptable -->
+<div [class]="{admin: isAdmin, dense: density === 'high'}">
+<div [style]="{'color': textColor, 'background-color': backgroundColor}">
+
+<!-- Avoid -->
+<div [ngClass]="{admin: isAdmin, dense: density === 'high'}">
+<div [ngStyle]="{'color': textColor, 'background-color': backgroundColor}">
+```
+
+### Use Control Flow Syntax (Angular 17+)
+```html
+@if (loading()) {
+  <app-spinner />
+} @else if (error()) {
+  <app-error [message]="error()" />
+} @else {
+  @for (ticket of tickets(); track ticket.id) {
+    <app-ticket-card 
+      [ticket]="ticket" 
+      (click)="selectTicket(ticket)" 
+    />
+  } @empty {
+    <p>No tickets found</p>
+  }
+}
+```
+
+### Name Event Handlers for What They DO
+```html
+<!-- Good - describes the action -->
+<button (click)="saveTicket()">Save</button>
+<button (click)="deleteTicket()">Delete</button>
+<input (blur)="validateEmail()">
+
+<!-- Bad - describes the event -->
+<button (click)="handleClick()">Save</button>
+<button (click)="onClick()">Delete</button>
+<input (blur)="onBlur()">
+```
+
+For keyboard events with modifiers:
+```html
+<textarea 
+  (keydown.control.enter)="submitForm()" 
+  (keydown.escape)="cancelEdit()"
+>
+```
+
+### Avoid Complex Logic in Templates
+```html
+<!-- Bad - complex expression -->
+<div>{{ tickets.filter(t => t.status === 'open' && t.priority === 'high').length }}</div>
+
+<!-- Good - use computed signal -->
+<div>{{ urgentTicketCount() }}</div>
+```
+
+```typescript
+protected urgentTicketCount = computed(() => 
+  this.tickets().filter(t => t.status === 'open' && t.priority === 'high').length
+);
+```
+
+## Services
+
+### Service Structure
+```typescript
+@Injectable({
+  providedIn: 'root',
+})
+export class TicketService {
+  private readonly http = inject(HttpClient);
+  private readonly apiUrl = '/api/v1/tickets';
+
+  getTickets(projectId: string, filters?: TicketFilters): Observable<Ticket[]> {
+    const params = this.buildParams(filters);
+    return this.http.get<ApiResponse<Ticket[]>>(
+      `/api/v1/projects/${projectId}/tickets`, 
+      { params }
+    ).pipe(map(res => res.data));
+  }
+
+  createTicket(projectId: string, dto: CreateTicketDto): Observable<Ticket> {
+    return this.http.post<ApiResponse<Ticket>>(
+      `/api/v1/projects/${projectId}/tickets`,
+      dto
+    ).pipe(map(res => res.data));
+  }
+
+  private buildParams(filters?: TicketFilters): HttpParams {
+    let params = new HttpParams();
+    if (filters?.status) {
+      params = params.set('status', filters.status);
+    }
+    return params;
+  }
+}
+```
+
+### Service Best Practices
+- Use `providedIn: 'root'` for singleton services
+- Use `inject()` for dependencies
+- Return Observables, let components subscribe
+- Don't subscribe in services unless managing long-lived state
+
+## State Management
+
+### Use Signals for Component State
+```typescript
+export class TicketListComponent {
+  protected tickets = signal<Ticket[]>([]);
+  protected loading = signal(false);
+  protected error = signal<string | null>(null);
+  
+  protected readonly hasTickets = computed(() => this.tickets().length > 0);
+}
+```
+
+### Use Services with Signals for Shared State
+```typescript
+@Injectable({ providedIn: 'root' })
+export class AuthStateService {
+  private readonly _user = signal<User | null>(null);
+  
+  // Expose as readonly
+  readonly user = this._user.asReadonly();
+  readonly isAuthenticated = computed(() => this._user() !== null);
+  readonly userDisplayName = computed(() => this._user()?.displayName ?? 'Guest');
+
+  setUser(user: User | null): void {
+    this._user.set(user);
+  }
+
+  clearUser(): void {
+    this._user.set(null);
+  }
+}
+```
+
+## HTTP & Interceptors
+
+### Functional Interceptors (Angular 17+)
+```typescript
+export const authInterceptor: HttpInterceptorFn = (req, next) => {
+  const authState = inject(AuthStateService);
+  const token = authState.token();
+  
+  if (token) {
+    req = req.clone({
+      setHeaders: { Authorization: `Bearer ${token}` },
+    });
+  }
+  
+  return next(req);
+};
+
+export const errorInterceptor: HttpInterceptorFn = (req, next) => {
+  const router = inject(Router);
+  const authState = inject(AuthStateService);
+  
+  return next(req).pipe(
+    catchError((error: HttpErrorResponse) => {
+      if (error.status === 401) {
+        authState.clearUser();
+        router.navigate(['/login']);
+      }
+      return throwError(() => error);
+    }),
+  );
+};
+```
+
+## Forms
+
+### Reactive Forms
+```typescript
+export class TicketFormComponent {
+  private readonly fb = inject(FormBuilder);
+
+  protected form = this.fb.nonNullable.group({
+    title: ['', [Validators.required, Validators.maxLength(255)]],
+    description: [''],
+    priority: ['medium' as TicketPriority, Validators.required],
+    assigneeId: [null as string | null],
+  });
+
+  protected onSubmit(): void {
+    if (this.form.invalid) {
+      this.form.markAllAsTouched();
+      return;
+    }
+    
+    const value = this.form.getRawValue();
+    this.ticketService.createTicket(value).subscribe({
+      next: () => this.router.navigate(['/tickets']),
+      error: (err) => this.handleError(err),
+    });
+  }
+}
+```
+
+## Routing
+
+### Lazy Loading with Route Files
+```typescript
+// app.routes.ts
+export const routes: Routes = [
+  { path: '', redirectTo: 'projects', pathMatch: 'full' },
+  {
+    path: 'auth',
+    loadChildren: () => import('./auth/auth.routes').then(m => m.AUTH_ROUTES),
+  },
+  {
+    path: 'projects',
+    loadChildren: () => import('./projects/projects.routes').then(m => m.PROJECT_ROUTES),
+    canActivate: [authGuard],
+  },
+  {
+    path: 'tickets',
+    loadChildren: () => import('./tickets/tickets.routes').then(m => m.TICKET_ROUTES),
+    canActivate: [authGuard],
+  },
+];
+```
+
+## Testing
+
+### Component Tests with Angular Testing Library
+```typescript
+describe('TicketListComponent', () => {
+  it('should display tickets', async () => {
+    const mockTickets = [createMockTicket({ title: 'Test ticket' })];
+    
+    await render(TicketListComponent, {
+      inputs: { projectId: 'proj-1' },
+      providers: [
+        { provide: TicketService, useValue: { getTickets: () => of(mockTickets) } },
+      ],
+    });
+
+    expect(screen.getByText('Test ticket')).toBeInTheDocument();
+  });
+
+  it('should call saveTicket when save button clicked', async () => {
+    const saveSpy = jest.fn().mockReturnValue(of({}));
+    
+    await render(TicketFormComponent, {
+      providers: [
+        { provide: TicketService, useValue: { createTicket: saveSpy } },
+      ],
+    });
+
+    await userEvent.type(screen.getByLabelText('Title'), 'New ticket');
+    await userEvent.click(screen.getByRole('button', { name: /save/i }));
+
+    expect(saveSpy).toHaveBeenCalled();
+  });
+});
+```
+
+## Don'ts
+
+- **Don't use `any`** — define proper types
+- **Don't put complex logic in templates** — use computed signals
+- **Don't use `ngClass`/`ngStyle`** — use `class`/`style` bindings
+- **Don't organize folders by type** — organize by feature
+- **Don't name handlers after events** — name them after actions (`saveTicket`, not `handleClick`)
+- **Don't put long logic in lifecycle hooks** — extract to well-named methods
+- **Don't mutate input values** — emit changes via outputs
+- **Don't forget lifecycle interfaces** — `implements OnInit, OnDestroy`
+- **Don't use constructor injection** — prefer `inject()` function
+- **Don't expose template-only members as public** — use `protected`

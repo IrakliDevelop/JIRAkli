@@ -1,0 +1,609 @@
+# Clean Code & OOP Principles
+
+Guidelines for writing maintainable, readable, and well-structured code.
+
+## SOLID Principles
+
+### Single Responsibility Principle (SRP)
+Every class/module should have one reason to change.
+
+```typescript
+// Bad: Mixed responsibilities
+class TicketService {
+  async createTicket(dto: CreateTicketDto) { /* ... */ }
+  async sendTicketNotification(ticket: Ticket) { /* ... */ }
+  async generateTicketReport(projectId: string) { /* ... */ }
+}
+
+// Good: Separated responsibilities
+class TicketService {
+  async createTicket(dto: CreateTicketDto) { /* ... */ }
+}
+
+class NotificationService {
+  async sendTicketCreatedNotification(ticket: Ticket) { /* ... */ }
+}
+
+class ReportService {
+  async generateTicketReport(projectId: string) { /* ... */ }
+}
+```
+
+### Open/Closed Principle (OCP)
+Open for extension, closed for modification.
+
+```typescript
+// Bad: Modifying existing code for each new status
+class TicketService {
+  getStatusColor(status: string): string {
+    if (status === 'open') return 'blue';
+    if (status === 'in_progress') return 'yellow';
+    if (status === 'done') return 'green';
+    // Must modify this function for each new status
+  }
+}
+
+// Good: Configurable, extensible
+const STATUS_CONFIG: Record<TicketStatus, StatusConfig> = {
+  backlog: { color: 'gray', label: 'Backlog' },
+  todo: { color: 'blue', label: 'To Do' },
+  in_progress: { color: 'yellow', label: 'In Progress' },
+  review: { color: 'purple', label: 'Review' },
+  done: { color: 'green', label: 'Done' },
+};
+
+class TicketService {
+  getStatusConfig(status: TicketStatus): StatusConfig {
+    return STATUS_CONFIG[status];
+  }
+}
+```
+
+### Liskov Substitution Principle (LSP)
+Subtypes must be substitutable for their base types.
+
+```typescript
+// Bad: Subclass changes expected behavior
+abstract class Repository<T> {
+  abstract findById(id: string): Promise<T | null>;
+}
+
+class CachingTicketRepository extends Repository<Ticket> {
+  async findById(id: string): Promise<Ticket> {
+    // Bad: Throws instead of returning null, breaking contract
+    const ticket = await this.cache.get(id) ?? await this.db.findById(id);
+    if (!ticket) throw new Error('Not found'); // Violates LSP
+    return ticket;
+  }
+}
+
+// Good: Maintains contract
+class CachingTicketRepository extends Repository<Ticket> {
+  async findById(id: string): Promise<Ticket | null> {
+    return await this.cache.get(id) ?? await this.db.findById(id);
+  }
+}
+```
+
+### Interface Segregation Principle (ISP)
+Clients shouldn't depend on interfaces they don't use.
+
+```typescript
+// Bad: Fat interface
+interface TicketOperations {
+  create(dto: CreateTicketDto): Promise<Ticket>;
+  update(id: string, dto: UpdateTicketDto): Promise<Ticket>;
+  delete(id: string): Promise<void>;
+  generateReport(): Promise<Report>;
+  exportToCsv(): Promise<Buffer>;
+  syncWithJira(): Promise<void>;
+}
+
+// Good: Segregated interfaces
+interface TicketCrud {
+  create(dto: CreateTicketDto): Promise<Ticket>;
+  update(id: string, dto: UpdateTicketDto): Promise<Ticket>;
+  delete(id: string): Promise<void>;
+}
+
+interface TicketExport {
+  exportToCsv(): Promise<Buffer>;
+  generateReport(): Promise<Report>;
+}
+
+interface TicketSync {
+  syncWithJira(): Promise<void>;
+}
+```
+
+### Dependency Inversion Principle (DIP)
+Depend on abstractions, not concretions.
+
+```typescript
+// Bad: Direct dependency on implementation
+class TicketService {
+  private repository = new SqliteTicketRepository();
+}
+
+// Good: Depend on abstraction (NestJS handles this via DI)
+interface TicketRepository {
+  findById(id: string): Promise<Ticket | null>;
+  create(data: InsertTicket): Promise<Ticket>;
+}
+
+@Injectable()
+class TicketService {
+  constructor(
+    @Inject('TICKET_REPOSITORY')
+    private readonly repository: TicketRepository,
+  ) {}
+}
+```
+
+## Clean Code Principles
+
+### Meaningful Names
+
+```typescript
+// Bad
+const d = new Date(); // What does 'd' represent?
+const list = getTickets(); // What kind of list?
+function process(t: Ticket) {} // Process how?
+
+// Good
+const createdAt = new Date();
+const openTickets = getOpenTickets();
+function assignTicketToUser(ticket: Ticket, userId: string) {}
+```
+
+### Name Conventions
+- **Variables/functions**: Describe what it holds/does (`userEmail`, `calculateTotal`)
+- **Booleans**: Use is/has/can/should (`isActive`, `hasPermission`, `canEdit`)
+- **Functions**: Use verbs (`getUser`, `createTicket`, `validateInput`)
+- **Classes**: Use nouns (`TicketService`, `UserRepository`)
+- **Constants**: Use UPPER_SNAKE_CASE for true constants (`MAX_RETRY_COUNT`)
+
+### Functions
+
+#### Keep Functions Small
+```typescript
+// Bad: Function doing too much
+async function processTicketCreation(dto: CreateTicketDto, userId: string) {
+  // Validate input (10 lines)
+  // Check permissions (10 lines)
+  // Create ticket (10 lines)
+  // Send notification (10 lines)
+  // Update analytics (10 lines)
+  // Log activity (10 lines)
+}
+
+// Good: Small, focused functions
+async function createTicket(dto: CreateTicketDto, userId: string) {
+  await this.validateCreatePermission(userId, dto.projectId);
+  const ticket = await this.ticketRepository.create(dto, userId);
+  await this.onTicketCreated(ticket);
+  return ticket;
+}
+
+private async onTicketCreated(ticket: Ticket) {
+  await Promise.all([
+    this.notificationService.notifyTicketCreated(ticket),
+    this.activityService.logTicketCreated(ticket),
+  ]);
+}
+```
+
+#### Single Level of Abstraction
+```typescript
+// Bad: Mixed abstraction levels
+async function createTicket(dto: CreateTicketDto) {
+  // High level
+  const project = await this.projectService.findById(dto.projectId);
+  
+  // Low level (database details)
+  const [{ maxNumber }] = await this.db
+    .select({ maxNumber: sql`MAX(number)` })
+    .from(tickets)
+    .where(eq(tickets.projectId, dto.projectId));
+  
+  // High level again
+  await this.notificationService.notify(/*...*/);
+}
+
+// Good: Consistent abstraction
+async function createTicket(dto: CreateTicketDto) {
+  await this.validateProject(dto.projectId);
+  const ticketNumber = await this.getNextTicketNumber(dto.projectId);
+  const ticket = await this.saveTicket(dto, ticketNumber);
+  await this.notifyTicketCreated(ticket);
+  return ticket;
+}
+```
+
+#### Limit Parameters
+```typescript
+// Bad: Too many parameters
+function createTicket(
+  title: string,
+  description: string,
+  status: string,
+  priority: string,
+  assigneeId: string,
+  projectId: string,
+  reporterId: string,
+) {}
+
+// Good: Use object parameter
+function createTicket(params: CreateTicketParams) {}
+
+// Or use builder pattern for complex construction
+const ticket = new TicketBuilder()
+  .withTitle('Fix bug')
+  .withPriority('high')
+  .inProject(projectId)
+  .build();
+```
+
+### Comments
+
+#### Good Comments
+```typescript
+// Explains WHY, not WHAT
+// Using optimistic locking because tickets can be edited concurrently
+const version = ticket.version;
+
+// Clarifies complex business logic
+// Tickets can only transition to 'done' if all subtasks are complete
+// per the workflow rules defined in PROJECT-123
+
+// TODO with context
+// TODO(PROJECT-456): Replace with proper rate limiter once Redis is added
+
+// JSDoc for public APIs
+/**
+ * Assigns a ticket to a user.
+ * @throws {ForbiddenException} If user cannot be assigned to this project
+ * @throws {NotFoundException} If ticket or user doesn't exist
+ */
+async assignTicket(ticketId: string, userId: string): Promise<Ticket>
+```
+
+#### Bad Comments
+```typescript
+// Bad: Explains WHAT (code should be self-documenting)
+// Increment counter by 1
+counter++;
+
+// Bad: Commented-out code (use version control)
+// const oldImplementation = () => { ... };
+
+// Bad: Redundant comment
+// Returns the ticket
+return ticket;
+
+// Bad: Misleading comment
+// Check if user is admin
+if (user.role === 'editor') { } // Comment doesn't match code!
+```
+
+### Error Handling
+
+```typescript
+// Bad: Swallowing errors
+try {
+  await createTicket(dto);
+} catch (e) {
+  console.log(e); // Error is lost
+}
+
+// Bad: Generic error
+throw new Error('Error');
+
+// Good: Specific, actionable errors
+throw new NotFoundException(`Ticket with ID "${id}" not found`);
+throw new BadRequestException(`Invalid status transition from "${from}" to "${to}"`);
+
+// Good: Let errors propagate to global handler
+// Don't catch unless you can handle meaningfully
+async createTicket(dto: CreateTicketDto) {
+  const project = await this.projectService.findById(dto.projectId);
+  // NotFoundException will propagate if project not found
+  
+  return this.ticketRepository.create(dto);
+}
+```
+
+### Avoid Magic Numbers/Strings
+
+```typescript
+// Bad
+if (tickets.length > 100) { }
+if (status === 'done') { }
+setTimeout(fn, 86400000);
+
+// Good
+const MAX_TICKETS_PER_PAGE = 100;
+if (tickets.length > MAX_TICKETS_PER_PAGE) { }
+
+const TICKET_STATUS = {
+  DONE: 'done',
+  // ...
+} as const;
+if (status === TICKET_STATUS.DONE) { }
+
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+setTimeout(fn, ONE_DAY_MS);
+```
+
+## Code Organization
+
+### Prefer Composition Over Inheritance
+
+```typescript
+// Inheritance (use sparingly)
+class AdminUser extends User {
+  // Tightly coupled, hard to change
+}
+
+// Composition (preferred)
+class User {
+  constructor(
+    private readonly permissions: PermissionSet,
+    private readonly profile: UserProfile,
+  ) {}
+
+  canEdit(resource: Resource): boolean {
+    return this.permissions.allows('edit', resource);
+  }
+}
+```
+
+### Encapsulation
+
+```typescript
+// Bad: Exposing internals
+class Ticket {
+  public status: string;
+  public history: StatusChange[] = [];
+}
+
+// Anywhere in code:
+ticket.status = 'done'; // No validation!
+ticket.history.push(change); // Direct mutation
+
+// Good: Controlled access
+class Ticket {
+  private _status: TicketStatus;
+  private _history: StatusChange[] = [];
+
+  get status(): TicketStatus {
+    return this._status;
+  }
+
+  get history(): readonly StatusChange[] {
+    return this._history;
+  }
+
+  transitionTo(newStatus: TicketStatus, userId: string): void {
+    this.validateTransition(this._status, newStatus);
+    this._history.push({
+      from: this._status,
+      to: newStatus,
+      changedBy: userId,
+      changedAt: new Date(),
+    });
+    this._status = newStatus;
+  }
+
+  private validateTransition(from: TicketStatus, to: TicketStatus): void {
+    if (!VALID_TRANSITIONS[from]?.includes(to)) {
+      throw new BadRequestException(`Cannot transition from ${from} to ${to}`);
+    }
+  }
+}
+```
+
+### Immutability
+
+```typescript
+// Bad: Mutating input
+function addTag(ticket: Ticket, tag: string): Ticket {
+  ticket.tags.push(tag); // Mutates original!
+  return ticket;
+}
+
+// Good: Return new object
+function addTag(ticket: Ticket, tag: string): Ticket {
+  return {
+    ...ticket,
+    tags: [...ticket.tags, tag],
+  };
+}
+
+// In Angular: Use signals with immutable updates
+this.tickets.update(tickets => 
+  tickets.map(t => t.id === id ? { ...t, status: newStatus } : t)
+);
+```
+
+## Testing Principles
+
+### Test Structure (AAA Pattern)
+```typescript
+describe('TicketService', () => {
+  describe('createTicket', () => {
+    it('should create ticket with next number in project', async () => {
+      // Arrange
+      const projectId = 'project-1';
+      const dto = { title: 'Test', priority: 'medium' };
+      mockRepository.getNextNumber.mockResolvedValue(42);
+      mockRepository.create.mockResolvedValue({ id: 'ticket-1', number: 42 });
+
+      // Act
+      const result = await service.createTicket(projectId, dto);
+
+      // Assert
+      expect(result.number).toBe(42);
+      expect(mockRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ projectId, number: 42 }),
+      );
+    });
+  });
+});
+```
+
+### Test Naming
+```typescript
+// Bad: Vague names
+it('should work', () => {});
+it('test createTicket', () => {});
+
+// Good: Describes behavior
+it('should return 404 when ticket does not exist', () => {});
+it('should increment ticket number within project', () => {});
+it('should throw ForbiddenException when user lacks permission', () => {});
+```
+
+### What to Test
+- **Business logic**: State transitions, calculations, validations
+- **Edge cases**: Empty inputs, boundaries, error conditions
+- **Integration points**: API contracts, database queries
+
+### What NOT to Test
+- Framework code (NestJS, Angular internals)
+- Simple getters/setters
+- Third-party libraries
+- Implementation details (test behavior, not how)
+
+## Code Smells to Avoid
+
+### Long Methods
+If a method is > 20 lines, consider splitting.
+
+### Deep Nesting
+```typescript
+// Bad
+if (user) {
+  if (user.isActive) {
+    if (user.hasPermission) {
+      if (ticket) {
+        // actual logic buried here
+      }
+    }
+  }
+}
+
+// Good: Early returns
+if (!user) return;
+if (!user.isActive) return;
+if (!user.hasPermission) throw new ForbiddenException();
+if (!ticket) throw new NotFoundException();
+// actual logic at top level
+```
+
+### Feature Envy
+When a method uses more data from another class than its own.
+
+```typescript
+// Bad: TicketService knows too much about Project
+class TicketService {
+  canCreateTicket(project: Project): boolean {
+    return project.settings.allowTickets && 
+           project.members.length > 0 &&
+           project.status === 'active';
+  }
+}
+
+// Good: Ask the object that owns the data
+class Project {
+  canCreateTickets(): boolean {
+    return this.settings.allowTickets && 
+           this.members.length > 0 &&
+           this.status === 'active';
+  }
+}
+
+class TicketService {
+  canCreateTicket(project: Project): boolean {
+    return project.canCreateTickets();
+  }
+}
+```
+
+### Primitive Obsession
+```typescript
+// Bad: Primitives everywhere
+function createUser(email: string, role: string) {
+  if (!email.includes('@')) throw new Error('Invalid email');
+  if (!['admin', 'user'].includes(role)) throw new Error('Invalid role');
+}
+
+// Good: Value objects
+class Email {
+  constructor(private readonly value: string) {
+    if (!value.includes('@')) throw new InvalidEmailError(value);
+  }
+  toString() { return this.value; }
+}
+
+type Role = 'admin' | 'user';
+
+function createUser(email: Email, role: Role) {
+  // Validation already done by types
+}
+```
+
+## TypeScript-Specific
+
+### Use Strict Mode
+```json
+// tsconfig.json
+{
+  "compilerOptions": {
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "noImplicitReturns": true
+  }
+}
+```
+
+### Prefer Type Inference
+```typescript
+// Unnecessary: Type is obvious
+const name: string = 'John';
+const tickets: Ticket[] = await getTickets();
+
+// Good: Let TypeScript infer
+const name = 'John';
+const tickets = await getTickets(); // Type inferred from function return
+```
+
+### Use `readonly` and `as const`
+```typescript
+// Immutable arrays/objects
+const STATUSES = ['open', 'closed'] as const;
+type Status = typeof STATUSES[number]; // 'open' | 'closed'
+
+// Readonly properties
+interface Config {
+  readonly apiUrl: string;
+  readonly timeout: number;
+}
+```
+
+### Avoid `any`
+```typescript
+// Bad
+function process(data: any) {}
+
+// Good: Be specific
+function process(data: TicketData) {}
+
+// If truly unknown, use proper handling
+function process(data: unknown) {
+  if (isTicketData(data)) {
+    // Now TypeScript knows the type
+  }
+}
+```

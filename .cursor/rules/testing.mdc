@@ -1,0 +1,561 @@
+# Testing Guidelines
+
+Practical testing standards for Jirakli.
+
+## Philosophy
+
+- **Test behavior, not implementation** — Tests should verify what the code does, not how
+- **Focus on business logic** — Prioritize testing core functionality over boilerplate
+- **Fast feedback** — Unit tests should run in milliseconds
+- **Maintainable tests** — Tests are code; keep them clean
+
+## Test Pyramid
+
+```
+        /   E2E   \          Few, slow, high confidence
+       /───────────\
+      / Integration \        Some, medium speed
+     /───────────────\
+    /    Unit Tests   \      Many, fast, isolated
+   /───────────────────\
+```
+
+### MVP Focus
+For MVP, prioritize:
+1. **Unit tests** for business logic (services, utilities)
+2. **Integration tests** for critical API paths (auth, ticket CRUD)
+3. Skip E2E until stable
+
+## Folder Structure
+
+```
+packages/server/
+├── src/
+│   └── modules/
+│       └── tickets/
+│           ├── tickets.service.ts
+│           ├── tickets.service.spec.ts      # Unit tests next to source
+│           └── tickets.controller.spec.ts
+├── test/
+│   ├── app.e2e-spec.ts                      # E2E tests
+│   ├── setup.ts                             # Test setup
+│   ├── factories.ts                         # Test data factories
+│   └── utils.ts                             # Test helpers
+
+packages/client/
+├── src/
+│   └── app/
+│       └── features/
+│           └── tickets/
+│               ├── ticket-list.component.ts
+│               └── ticket-list.component.spec.ts
+└── test/
+    ├── setup.ts
+    └── factories.ts
+```
+
+## Unit Testing (Backend)
+
+### Service Tests
+```typescript
+// tickets.service.spec.ts
+import { Test, TestingModule } from '@nestjs/testing';
+import { TicketsService } from './tickets.service';
+import { TicketsRepository } from './tickets.repository';
+import { NotFoundException } from '@nestjs/common';
+import { createMockTicket } from '../../../test/factories';
+
+describe('TicketsService', () => {
+  let service: TicketsService;
+  let repository: jest.Mocked<TicketsRepository>;
+
+  beforeEach(async () => {
+    const mockRepository = {
+      findById: jest.fn(),
+      findByProject: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+      getNextNumber: jest.fn(),
+    };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        TicketsService,
+        { provide: TicketsRepository, useValue: mockRepository },
+        { provide: ProjectsService, useValue: { exists: jest.fn().mockResolvedValue(true) } },
+      ],
+    }).compile();
+
+    service = module.get(TicketsService);
+    repository = module.get(TicketsRepository);
+  });
+
+  describe('findOne', () => {
+    it('should return ticket when found', async () => {
+      // Arrange
+      const ticket = createMockTicket({ id: 'ticket-1' });
+      repository.findById.mockResolvedValue(ticket);
+
+      // Act
+      const result = await service.findOne('ticket-1');
+
+      // Assert
+      expect(result).toEqual(ticket);
+      expect(repository.findById).toHaveBeenCalledWith('ticket-1');
+    });
+
+    it('should throw NotFoundException when ticket does not exist', async () => {
+      // Arrange
+      repository.findById.mockResolvedValue(null);
+
+      // Act & Assert
+      await expect(service.findOne('non-existent'))
+        .rejects
+        .toThrow(NotFoundException);
+    });
+  });
+
+  describe('create', () => {
+    it('should create ticket with next number in project', async () => {
+      // Arrange
+      const projectId = 'project-1';
+      const dto = { title: 'New ticket', priority: 'high' as const };
+      const expectedTicket = createMockTicket({ 
+        projectId, 
+        number: 42,
+        title: dto.title,
+      });
+
+      repository.getNextNumber.mockResolvedValue(42);
+      repository.create.mockResolvedValue(expectedTicket);
+
+      // Act
+      const result = await service.create(projectId, dto, 'user-1');
+
+      // Assert
+      expect(result.number).toBe(42);
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          projectId,
+          number: 42,
+          title: dto.title,
+        }),
+      );
+    });
+  });
+});
+```
+
+### What to Mock
+- **Repository** — Always mock in service tests
+- **External services** — Other modules' services
+- **Database** — Never touch real DB in unit tests
+
+### What NOT to Mock
+- **The class under test** — Obviously
+- **Pure functions** — Utilities without side effects
+- **Value objects** — DTOs, types
+
+## Integration Testing (Backend)
+
+### API Endpoint Tests
+```typescript
+// test/tickets.e2e-spec.ts
+import { Test, TestingModule } from '@nestjs/testing';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
+import * as request from 'supertest';
+import { AppModule } from '../src/app.module';
+import { createTestDatabase, seedTestUser } from './utils';
+
+describe('Tickets API', () => {
+  let app: INestApplication;
+  let authToken: string;
+
+  beforeAll(async () => {
+    await createTestDatabase();
+    
+    const module: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+
+    app = module.createNestApplication();
+    app.useGlobalPipes(new ValidationPipe());
+    await app.init();
+
+    // Get auth token for tests
+    const user = await seedTestUser();
+    const loginResponse = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email: user.email, password: 'password' });
+    authToken = loginResponse.body.accessToken;
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  describe('POST /api/v1/projects/:projectId/tickets', () => {
+    it('should create a ticket', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/api/v1/projects/project-1/tickets')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          title: 'Test ticket',
+          priority: 'medium',
+        })
+        .expect(201);
+
+      expect(response.body.data).toMatchObject({
+        title: 'Test ticket',
+        priority: 'medium',
+        status: 'backlog',
+      });
+      expect(response.body.data.id).toBeDefined();
+    });
+
+    it('should return 400 for invalid data', async () => {
+      await request(app.getHttpServer())
+        .post('/api/v1/projects/project-1/tickets')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          // Missing required title
+          priority: 'medium',
+        })
+        .expect(400);
+    });
+
+    it('should return 401 without auth token', async () => {
+      await request(app.getHttpServer())
+        .post('/api/v1/projects/project-1/tickets')
+        .send({ title: 'Test', priority: 'medium' })
+        .expect(401);
+    });
+  });
+});
+```
+
+### Test Database
+```typescript
+// test/utils.ts
+import Database from 'better-sqlite3';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
+import * as schema from '../src/database/schema';
+
+let testDb: ReturnType<typeof drizzle>;
+
+export async function createTestDatabase() {
+  const sqlite = new Database(':memory:');
+  testDb = drizzle(sqlite, { schema });
+  migrate(testDb, { migrationsFolder: './src/database/migrations' });
+  return testDb;
+}
+
+export async function seedTestUser() {
+  const user = {
+    id: 'test-user-1',
+    email: 'test@example.com',
+    passwordHash: await hash('password'),
+    displayName: 'Test User',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+  
+  await testDb.insert(schema.users).values(user);
+  return user;
+}
+
+export async function clearDatabase() {
+  await testDb.delete(schema.comments);
+  await testDb.delete(schema.tickets);
+  await testDb.delete(schema.projects);
+  await testDb.delete(schema.users);
+}
+```
+
+## Unit Testing (Frontend)
+
+### Component Tests with Angular Testing Library
+```typescript
+// ticket-list.component.spec.ts
+import { render, screen, fireEvent } from '@testing-library/angular';
+import { TicketListComponent } from './ticket-list.component';
+import { TicketService } from '../services/ticket.service';
+import { of } from 'rxjs';
+import { createMockTicket } from '../../../../test/factories';
+
+describe('TicketListComponent', () => {
+  const mockTicketService = {
+    getTickets: jest.fn(),
+    deleteTicket: jest.fn(),
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('should display list of tickets', async () => {
+    // Arrange
+    const tickets = [
+      createMockTicket({ title: 'First ticket' }),
+      createMockTicket({ title: 'Second ticket' }),
+    ];
+    mockTicketService.getTickets.mockReturnValue(of(tickets));
+
+    // Act
+    await render(TicketListComponent, {
+      inputs: { projectId: 'project-1' },
+      providers: [
+        { provide: TicketService, useValue: mockTicketService },
+      ],
+    });
+
+    // Assert
+    expect(screen.getByText('First ticket')).toBeInTheDocument();
+    expect(screen.getByText('Second ticket')).toBeInTheDocument();
+  });
+
+  it('should show empty state when no tickets', async () => {
+    mockTicketService.getTickets.mockReturnValue(of([]));
+
+    await render(TicketListComponent, {
+      inputs: { projectId: 'project-1' },
+      providers: [
+        { provide: TicketService, useValue: mockTicketService },
+      ],
+    });
+
+    expect(screen.getByText('No tickets found')).toBeInTheDocument();
+  });
+
+  it('should call delete when delete button clicked', async () => {
+    const ticket = createMockTicket({ id: 'ticket-1' });
+    mockTicketService.getTickets.mockReturnValue(of([ticket]));
+    mockTicketService.deleteTicket.mockReturnValue(of(void 0));
+
+    await render(TicketListComponent, {
+      inputs: { projectId: 'project-1' },
+      providers: [
+        { provide: TicketService, useValue: mockTicketService },
+      ],
+    });
+
+    const deleteButton = screen.getByRole('button', { name: /delete/i });
+    fireEvent.click(deleteButton);
+
+    expect(mockTicketService.deleteTicket).toHaveBeenCalledWith('ticket-1');
+  });
+});
+```
+
+### Service Tests
+```typescript
+// ticket.service.spec.ts
+import { TestBed } from '@angular/core/testing';
+import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
+import { TicketService } from './ticket.service';
+
+describe('TicketService', () => {
+  let service: TicketService;
+  let httpMock: HttpTestingController;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      imports: [HttpClientTestingModule],
+      providers: [TicketService],
+    });
+
+    service = TestBed.inject(TicketService);
+    httpMock = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() => {
+    httpMock.verify(); // Ensure no outstanding requests
+  });
+
+  it('should fetch tickets for project', () => {
+    const mockTickets = [{ id: '1', title: 'Test' }];
+
+    service.getTickets('project-1').subscribe(tickets => {
+      expect(tickets).toEqual(mockTickets);
+    });
+
+    const req = httpMock.expectOne('/api/v1/projects/project-1/tickets');
+    expect(req.request.method).toBe('GET');
+    req.flush({ data: mockTickets });
+  });
+});
+```
+
+## Test Factories
+
+```typescript
+// test/factories.ts
+import { Ticket, User, Project, Comment } from '@jirakli/shared';
+
+export function createMockUser(overrides: Partial<User> = {}): User {
+  return {
+    id: crypto.randomUUID(),
+    email: `user-${Date.now()}@test.com`,
+    displayName: 'Test User',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...overrides,
+  };
+}
+
+export function createMockProject(overrides: Partial<Project> = {}): Project {
+  return {
+    id: crypto.randomUUID(),
+    key: 'TEST',
+    name: 'Test Project',
+    description: null,
+    createdById: 'user-1',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...overrides,
+  };
+}
+
+export function createMockTicket(overrides: Partial<Ticket> = {}): Ticket {
+  return {
+    id: crypto.randomUUID(),
+    projectId: 'project-1',
+    number: 1,
+    title: 'Test Ticket',
+    description: null,
+    status: 'backlog',
+    priority: 'medium',
+    assigneeId: null,
+    reporterId: 'user-1',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...overrides,
+  };
+}
+
+export function createMockComment(overrides: Partial<Comment> = {}): Comment {
+  return {
+    id: crypto.randomUUID(),
+    ticketId: 'ticket-1',
+    authorId: 'user-1',
+    content: 'Test comment',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...overrides,
+  };
+}
+```
+
+## Test Naming Conventions
+
+### Pattern
+```
+should [expected behavior] when [condition]
+```
+
+### Examples
+```typescript
+// Good
+it('should return 404 when ticket does not exist')
+it('should create ticket with status backlog by default')
+it('should throw ForbiddenException when user lacks permission')
+it('should display loading spinner while fetching')
+
+// Bad
+it('test ticket creation')
+it('works correctly')
+it('handles error')
+```
+
+## Coverage Guidelines
+
+### Targets (MVP)
+- Services: 80%+
+- Controllers: 60%+ (mostly covered by integration tests)
+- Components: 60%+ (behavior, not template details)
+- Utilities: 90%+
+- Repositories: Covered by integration tests
+
+### Running Coverage
+```bash
+# Backend
+pnpm --filter server test:cov
+
+# Frontend
+pnpm --filter client test:cov
+```
+
+### What to Ignore
+```typescript
+// Add to jest config
+coveragePathIgnorePatterns: [
+  '/node_modules/',
+  '.module.ts',      // NestJS modules are just wiring
+  '.dto.ts',         // DTOs are just types
+  'main.ts',         // Bootstrap file
+  '/test/',          // Test utilities
+]
+```
+
+## Mocking Best Practices
+
+### DO Mock
+- External services (HTTP, database)
+- Time (`jest.useFakeTimers()`)
+- Random values when testing specific outputs
+- Side effects (logging, analytics)
+
+### DON'T Mock
+- Pure functions
+- The system under test
+- Simple data transformations
+
+### Partial Mocks
+```typescript
+// When you only need to mock some methods
+const partialMock = {
+  ...actualService,
+  specificMethod: jest.fn(),
+};
+```
+
+## Async Testing
+
+```typescript
+// Prefer async/await over done callback
+it('should fetch data', async () => {
+  const result = await service.getData();
+  expect(result).toBeDefined();
+});
+
+// For observables, use firstValueFrom
+import { firstValueFrom } from 'rxjs';
+
+it('should emit value', async () => {
+  const value = await firstValueFrom(service.getData$());
+  expect(value).toBe('expected');
+});
+
+// Testing errors
+it('should throw on invalid input', async () => {
+  await expect(service.process(null)).rejects.toThrow('Invalid input');
+});
+```
+
+## CI Integration
+
+```yaml
+# In CI pipeline
+test:
+  script:
+    - pnpm install
+    - pnpm test:ci      # Runs all tests with coverage
+    - pnpm lint
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage/cobertura-coverage.xml
+```

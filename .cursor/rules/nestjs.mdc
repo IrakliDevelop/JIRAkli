@@ -1,0 +1,559 @@
+# NestJS Code Style Guidelines
+
+Conventions derived from NestJS documentation and community best practices.
+
+## File Structure & Naming
+
+### Naming Conventions
+- **Files**: `feature-name.type.ts` (e.g., `ticket.controller.ts`, `auth.service.ts`)
+- **Controllers**: PascalCase with `Controller` suffix (`TicketController`)
+- **Services**: PascalCase with `Service` suffix (`TicketService`)
+- **Modules**: PascalCase with `Module` suffix (`TicketModule`)
+- **DTOs**: PascalCase with `Dto` suffix (`CreateTicketDto`)
+- **Entities/Schemas**: PascalCase, no suffix (`Ticket`)
+- **Guards**: PascalCase with `Guard` suffix (`AuthGuard`)
+- **Interceptors**: PascalCase with `Interceptor` suffix (`LoggingInterceptor`)
+- **Pipes**: PascalCase with `Pipe` suffix (`ValidationPipe`)
+- **Interfaces**: PascalCase, no `I` prefix
+
+### Folder Structure
+```
+src/
+├── main.ts                   # Application entry point
+├── app.module.ts             # Root module
+├── common/                   # Shared utilities
+│   ├── decorators/
+│   ├── filters/
+│   ├── guards/
+│   ├── interceptors/
+│   ├── pipes/
+│   └── utils/
+├── config/                   # Configuration
+│   ├── config.module.ts
+│   └── database.config.ts
+├── database/                 # Database setup
+│   ├── database.module.ts
+│   ├── schema/               # Drizzle schemas
+│   └── migrations/
+├── modules/                  # Feature modules
+│   ├── auth/
+│   │   ├── auth.module.ts
+│   │   ├── auth.controller.ts
+│   │   ├── auth.service.ts
+│   │   ├── dto/
+│   │   ├── guards/
+│   │   └── strategies/
+│   ├── tickets/
+│   │   ├── tickets.module.ts
+│   │   ├── tickets.controller.ts
+│   │   ├── tickets.service.ts
+│   │   ├── tickets.repository.ts
+│   │   └── dto/
+│   ├── projects/
+│   └── users/
+└── shared/                   # Shared module (imported by features)
+    └── shared.module.ts
+```
+
+## Modules
+
+### Module Organization
+```typescript
+@Module({
+  imports: [
+    // External modules first
+    DatabaseModule,
+    // Feature modules
+    UsersModule,
+  ],
+  controllers: [TicketsController],
+  providers: [
+    TicketsService,
+    TicketsRepository,
+  ],
+  exports: [TicketsService], // Only export what other modules need
+})
+export class TicketsModule {}
+```
+
+### Module Best Practices
+- **One module per feature** — encapsulate related functionality
+- **Keep modules focused** — if a module grows too large, split it
+- **Export only what's needed** — don't export everything by default
+- **Use `forRoot()` / `forFeature()`** patterns for configurable modules
+
+## Controllers
+
+### Controller Structure
+```typescript
+@Controller('projects/:projectId/tickets')
+@UseGuards(AuthGuard)
+@ApiTags('tickets')
+export class TicketsController {
+  constructor(private readonly ticketsService: TicketsService) {}
+
+  @Get()
+  @ApiOperation({ summary: 'List tickets for a project' })
+  @ApiResponse({ status: 200, type: [TicketResponseDto] })
+  async findAll(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Query() filters: TicketFiltersDto,
+    @CurrentUser() user: User,
+  ): Promise<TicketResponseDto[]> {
+    return this.ticketsService.findAll(projectId, filters);
+  }
+
+  @Post()
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Create a ticket' })
+  @ApiResponse({ status: 201, type: TicketResponseDto })
+  async create(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Body() createTicketDto: CreateTicketDto,
+    @CurrentUser() user: User,
+  ): Promise<TicketResponseDto> {
+    return this.ticketsService.create(projectId, createTicketDto, user.id);
+  }
+
+  @Patch(':id')
+  @ApiOperation({ summary: 'Update a ticket' })
+  async update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() updateTicketDto: UpdateTicketDto,
+  ): Promise<TicketResponseDto> {
+    return this.ticketsService.update(id, updateTicketDto);
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Delete a ticket' })
+  async remove(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
+    await this.ticketsService.remove(id);
+  }
+}
+```
+
+### Controller Best Practices
+- **Keep controllers thin** — delegate business logic to services
+- **Use DTOs** for request/response typing
+- **Use pipes** for validation and transformation
+- **Use guards** for authorization
+- **Return typed responses** — use response DTOs, not entities
+- **Use proper HTTP status codes** via `@HttpCode()`
+
+## Services
+
+### Service Structure
+```typescript
+@Injectable()
+export class TicketsService {
+  constructor(
+    private readonly ticketsRepository: TicketsRepository,
+    private readonly projectsService: ProjectsService,
+  ) {}
+
+  async findAll(projectId: string, filters: TicketFiltersDto): Promise<Ticket[]> {
+    await this.validateProjectExists(projectId);
+    return this.ticketsRepository.findByProject(projectId, filters);
+  }
+
+  async findOne(id: string): Promise<Ticket> {
+    const ticket = await this.ticketsRepository.findById(id);
+    if (!ticket) {
+      throw new NotFoundException(`Ticket with ID "${id}" not found`);
+    }
+    return ticket;
+  }
+
+  async create(
+    projectId: string,
+    dto: CreateTicketDto,
+    reporterId: string,
+  ): Promise<Ticket> {
+    await this.validateProjectExists(projectId);
+    
+    const ticketNumber = await this.ticketsRepository.getNextNumber(projectId);
+    
+    return this.ticketsRepository.create({
+      ...dto,
+      projectId,
+      reporterId,
+      number: ticketNumber,
+    });
+  }
+
+  async update(id: string, dto: UpdateTicketDto): Promise<Ticket> {
+    const ticket = await this.findOne(id); // Throws if not found
+    return this.ticketsRepository.update(id, dto);
+  }
+
+  async remove(id: string): Promise<void> {
+    const ticket = await this.findOne(id);
+    await this.ticketsRepository.delete(id);
+  }
+
+  private async validateProjectExists(projectId: string): Promise<void> {
+    const exists = await this.projectsService.exists(projectId);
+    if (!exists) {
+      throw new NotFoundException(`Project with ID "${projectId}" not found`);
+    }
+  }
+}
+```
+
+### Service Best Practices
+- **Business logic lives here** — not in controllers or repositories
+- **Throw NestJS exceptions** (`NotFoundException`, `BadRequestException`, etc.)
+- **Use dependency injection** — inject repositories and other services
+- **Keep methods focused** — single responsibility
+- **Validate preconditions** — check existence before operations
+
+## Repository Pattern
+
+### Repository Structure
+```typescript
+@Injectable()
+export class TicketsRepository {
+  constructor(@Inject('DATABASE') private readonly db: Database) {}
+
+  async findById(id: string): Promise<Ticket | null> {
+    const result = await this.db
+      .select()
+      .from(tickets)
+      .where(eq(tickets.id, id))
+      .limit(1);
+    
+    return result[0] ?? null;
+  }
+
+  async findByProject(
+    projectId: string,
+    filters: TicketFiltersDto,
+  ): Promise<Ticket[]> {
+    let query = this.db
+      .select()
+      .from(tickets)
+      .where(eq(tickets.projectId, projectId));
+
+    if (filters.status) {
+      query = query.where(eq(tickets.status, filters.status));
+    }
+
+    if (filters.assigneeId) {
+      query = query.where(eq(tickets.assigneeId, filters.assigneeId));
+    }
+
+    return query.orderBy(desc(tickets.createdAt));
+  }
+
+  async create(data: InsertTicket): Promise<Ticket> {
+    const result = await this.db
+      .insert(tickets)
+      .values({
+        id: randomUUID(),
+        ...data,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .returning();
+
+    return result[0];
+  }
+
+  async update(id: string, data: Partial<InsertTicket>): Promise<Ticket> {
+    const result = await this.db
+      .update(tickets)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(tickets.id, id))
+      .returning();
+
+    return result[0];
+  }
+
+  async delete(id: string): Promise<void> {
+    await this.db.delete(tickets).where(eq(tickets.id, id));
+  }
+
+  async getNextNumber(projectId: string): Promise<number> {
+    const result = await this.db
+      .select({ maxNumber: sql<number>`COALESCE(MAX(${tickets.number}), 0)` })
+      .from(tickets)
+      .where(eq(tickets.projectId, projectId));
+
+    return (result[0]?.maxNumber ?? 0) + 1;
+  }
+}
+```
+
+### Repository Best Practices
+- **Encapsulate data access** — services don't know about Drizzle
+- **Return domain objects** — not raw query results
+- **Handle null cases** — return `null` for not found, let service throw
+- **Keep queries focused** — one method per query type
+
+## DTOs
+
+### DTO Structure
+```typescript
+// create-ticket.dto.ts
+export class CreateTicketDto {
+  @ApiProperty({ example: 'Fix login bug' })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
+  title: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  description?: string;
+
+  @ApiProperty({ enum: TicketPriority, example: 'medium' })
+  @IsEnum(TicketPriority)
+  priority: TicketPriority;
+
+  @ApiPropertyOptional()
+  @IsUUID()
+  @IsOptional()
+  assigneeId?: string;
+}
+
+// update-ticket.dto.ts
+export class UpdateTicketDto extends PartialType(CreateTicketDto) {
+  @ApiPropertyOptional({ enum: TicketStatus })
+  @IsEnum(TicketStatus)
+  @IsOptional()
+  status?: TicketStatus;
+}
+
+// ticket-response.dto.ts
+export class TicketResponseDto {
+  @ApiProperty()
+  id: string;
+
+  @ApiProperty()
+  projectId: string;
+
+  @ApiProperty({ example: 42 })
+  number: number;
+
+  @ApiProperty()
+  title: string;
+
+  // ... etc
+
+  static fromEntity(ticket: Ticket): TicketResponseDto {
+    return {
+      id: ticket.id,
+      projectId: ticket.projectId,
+      number: ticket.number,
+      title: ticket.title,
+      // ... map all fields
+    };
+  }
+}
+```
+
+### DTO Best Practices
+- **Separate input and output DTOs** — don't expose internal structure
+- **Use class-validator decorators** — for automatic validation
+- **Use class-transformer** — for serialization control
+- **Use `PartialType`, `PickType`, `OmitType`** — for DRY DTO definitions
+- **Add Swagger decorators** — for API documentation
+
+## Exception Handling
+
+### Global Exception Filter
+```typescript
+@Catch()
+export class AllExceptionsFilter implements ExceptionFilter {
+  private readonly logger = new Logger(AllExceptionsFilter.name);
+
+  catch(exception: unknown, host: ArgumentsHost): void {
+    const ctx = host.switchToHttp();
+    const response = ctx.getResponse<Response>();
+    const request = ctx.getRequest<Request>();
+
+    let status = HttpStatus.INTERNAL_SERVER_ERROR;
+    let message = 'Internal server error';
+
+    if (exception instanceof HttpException) {
+      status = exception.getStatus();
+      const exceptionResponse = exception.getResponse();
+      message = typeof exceptionResponse === 'string' 
+        ? exceptionResponse 
+        : (exceptionResponse as any).message;
+    }
+
+    this.logger.error(
+      `${request.method} ${request.url} - ${status}: ${message}`,
+      exception instanceof Error ? exception.stack : undefined,
+    );
+
+    response.status(status).json({
+      statusCode: status,
+      message,
+      timestamp: new Date().toISOString(),
+      path: request.url,
+    });
+  }
+}
+```
+
+### Use Built-in Exceptions
+```typescript
+// Good
+throw new NotFoundException('Ticket not found');
+throw new BadRequestException('Invalid status transition');
+throw new UnauthorizedException('Invalid credentials');
+throw new ForbiddenException('Not allowed to edit this ticket');
+throw new ConflictException('Email already in use');
+
+// Don't create custom exceptions unless necessary
+```
+
+## Guards
+
+### Auth Guard
+```typescript
+@Injectable()
+export class JwtAuthGuard implements CanActivate {
+  constructor(private readonly jwtService: JwtService) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const request = context.switchToHttp().getRequest();
+    const token = this.extractToken(request);
+
+    if (!token) {
+      throw new UnauthorizedException('No token provided');
+    }
+
+    try {
+      const payload = await this.jwtService.verifyAsync(token);
+      request.user = payload;
+      return true;
+    } catch {
+      throw new UnauthorizedException('Invalid token');
+    }
+  }
+
+  private extractToken(request: Request): string | undefined {
+    const [type, token] = request.headers.authorization?.split(' ') ?? [];
+    return type === 'Bearer' ? token : undefined;
+  }
+}
+```
+
+## Custom Decorators
+
+### Current User Decorator
+```typescript
+export const CurrentUser = createParamDecorator(
+  (data: keyof User | undefined, ctx: ExecutionContext): User | unknown => {
+    const request = ctx.switchToHttp().getRequest();
+    const user = request.user as User;
+    return data ? user?.[data] : user;
+  },
+);
+
+// Usage
+@Get('me')
+getMe(@CurrentUser() user: User) {}
+
+@Get('my-id')
+getMyId(@CurrentUser('id') userId: string) {}
+```
+
+## Testing
+
+### Service Tests
+```typescript
+describe('TicketsService', () => {
+  let service: TicketsService;
+  let repository: jest.Mocked<TicketsRepository>;
+
+  beforeEach(async () => {
+    const module = await Test.createTestingModule({
+      providers: [
+        TicketsService,
+        {
+          provide: TicketsRepository,
+          useValue: {
+            findById: jest.fn(),
+            create: jest.fn(),
+            update: jest.fn(),
+          },
+        },
+        {
+          provide: ProjectsService,
+          useValue: { exists: jest.fn().mockResolvedValue(true) },
+        },
+      ],
+    }).compile();
+
+    service = module.get(TicketsService);
+    repository = module.get(TicketsRepository);
+  });
+
+  describe('findOne', () => {
+    it('should return ticket when found', async () => {
+      const ticket = createMockTicket();
+      repository.findById.mockResolvedValue(ticket);
+
+      const result = await service.findOne(ticket.id);
+
+      expect(result).toEqual(ticket);
+    });
+
+    it('should throw NotFoundException when not found', async () => {
+      repository.findById.mockResolvedValue(null);
+
+      await expect(service.findOne('non-existent')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+});
+```
+
+### Controller Tests (E2E)
+```typescript
+describe('TicketsController (e2e)', () => {
+  let app: INestApplication;
+
+  beforeAll(async () => {
+    const module = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+
+    app = module.createNestApplication();
+    app.useGlobalPipes(new ValidationPipe());
+    await app.init();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('POST /projects/:id/tickets should create ticket', () => {
+    return request(app.getHttpServer())
+      .post('/projects/project-1/tickets')
+      .set('Authorization', `Bearer ${testToken}`)
+      .send({ title: 'Test ticket', priority: 'medium' })
+      .expect(201)
+      .expect((res) => {
+        expect(res.body.title).toBe('Test ticket');
+      });
+  });
+});
+```
+
+## Don'ts
+
+- **Don't put business logic in controllers** — keep them thin
+- **Don't use `any`** — define proper types and DTOs
+- **Don't expose entities directly** — use response DTOs
+- **Don't catch exceptions in services** — let the global filter handle them
+- **Don't use synchronous operations** for I/O — always `async/await`
+- **Don't hardcode configuration** — use `ConfigService`
+- **Don't import from barrel files in the same module** — causes circular deps

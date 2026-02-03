@@ -1,0 +1,430 @@
+# Database & Drizzle Guidelines
+
+Best practices for database design and Drizzle ORM usage with SQLite.
+
+## Schema Design Principles
+
+### General Rules
+- **Use UUIDs for primary keys** — avoid auto-increment for distributed-friendly design
+- **Always include timestamps** — `createdAt` and `updatedAt` on every table
+- **Use soft deletes sparingly** — only when audit trail is required
+- **Normalize appropriately** — don't over-normalize, denormalize for read performance where justified
+- **Name tables in plural** — `users`, `tickets`, `comments`
+- **Name columns in camelCase** — Drizzle maps to snake_case automatically if configured
+
+### SQLite-Specific Considerations
+- **No native UUID type** — use `text` for UUIDs
+- **No native boolean** — use `integer` (0/1)
+- **No native datetime** — use `integer` (Unix timestamp) or `text` (ISO string)
+- **Limited ALTER TABLE** — plan schema carefully, migrations can be painful
+- **Single writer** — design for sequential writes, concurrent reads
+
+## Drizzle Schema Conventions
+
+### Table Definition
+```typescript
+// packages/shared/src/schemas/ticket.ts
+import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
+import { createInsertSchema, createSelectSchema } from 'drizzle-zod';
+import { z } from 'zod';
+
+// Constants
+export const TICKET_STATUS = ['backlog', 'todo', 'in_progress', 'review', 'done'] as const;
+export const TICKET_PRIORITY = ['low', 'medium', 'high', 'critical'] as const;
+
+// Table definition
+export const tickets = sqliteTable('tickets', {
+  // Primary key
+  id: text('id').primaryKey(), // UUID stored as text
+  
+  // Foreign keys
+  projectId: text('project_id')
+    .notNull()
+    .references(() => projects.id, { onDelete: 'cascade' }),
+  assigneeId: text('assignee_id')
+    .references(() => users.id, { onDelete: 'set null' }),
+  reporterId: text('reporter_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'restrict' }),
+  
+  // Business fields
+  number: integer('number').notNull(), // Per-project ticket number
+  title: text('title').notNull(),
+  description: text('description'),
+  status: text('status', { enum: TICKET_STATUS }).notNull().default('backlog'),
+  priority: text('priority', { enum: TICKET_PRIORITY }).notNull().default('medium'),
+  
+  // Timestamps (stored as Unix milliseconds)
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+});
+
+// Zod schemas (generated from Drizzle schema)
+export const insertTicketSchema = createInsertSchema(tickets, {
+  // Override/refine validations
+  title: z.string().min(1).max(255),
+  description: z.string().max(10000).optional(),
+});
+
+export const selectTicketSchema = createSelectSchema(tickets);
+
+// Types inferred from schemas
+export type Ticket = z.infer<typeof selectTicketSchema>;
+export type InsertTicket = z.infer<typeof insertTicketSchema>;
+```
+
+### Relations Definition
+```typescript
+// packages/shared/src/schemas/relations.ts
+import { relations } from 'drizzle-orm';
+import { users, projects, tickets, comments } from './index';
+
+export const usersRelations = relations(users, ({ many }) => ({
+  assignedTickets: many(tickets, { relationName: 'assignee' }),
+  reportedTickets: many(tickets, { relationName: 'reporter' }),
+  comments: many(comments),
+  projects: many(projects),
+}));
+
+export const projectsRelations = relations(projects, ({ one, many }) => ({
+  createdBy: one(users, {
+    fields: [projects.createdById],
+    references: [users.id],
+  }),
+  tickets: many(tickets),
+}));
+
+export const ticketsRelations = relations(tickets, ({ one, many }) => ({
+  project: one(projects, {
+    fields: [tickets.projectId],
+    references: [projects.id],
+  }),
+  assignee: one(users, {
+    fields: [tickets.assigneeId],
+    references: [users.id],
+    relationName: 'assignee',
+  }),
+  reporter: one(users, {
+    fields: [tickets.reporterId],
+    references: [users.id],
+    relationName: 'reporter',
+  }),
+  comments: many(comments),
+}));
+
+export const commentsRelations = relations(comments, ({ one }) => ({
+  ticket: one(tickets, {
+    fields: [comments.ticketId],
+    references: [tickets.id],
+  }),
+  author: one(users, {
+    fields: [comments.authorId],
+    references: [users.id],
+  }),
+}));
+```
+
+### Index Definition
+```typescript
+import { sqliteTable, text, integer, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
+
+export const tickets = sqliteTable('tickets', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull(),
+  number: integer('number').notNull(),
+  status: text('status').notNull(),
+  assigneeId: text('assignee_id'),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+}, (table) => ({
+  // Composite unique: ticket number is unique within a project
+  projectNumberIdx: uniqueIndex('tickets_project_number_idx')
+    .on(table.projectId, table.number),
+  
+  // Query optimization indexes
+  projectStatusIdx: index('tickets_project_status_idx')
+    .on(table.projectId, table.status),
+  assigneeIdx: index('tickets_assignee_idx')
+    .on(table.assigneeId),
+  createdAtIdx: index('tickets_created_at_idx')
+    .on(table.createdAt),
+}));
+```
+
+## Query Patterns
+
+### Basic CRUD
+```typescript
+import { eq, and, desc, sql } from 'drizzle-orm';
+
+// Select one
+const ticket = await db
+  .select()
+  .from(tickets)
+  .where(eq(tickets.id, id))
+  .limit(1)
+  .then(rows => rows[0] ?? null);
+
+// Select with conditions
+const openTickets = await db
+  .select()
+  .from(tickets)
+  .where(
+    and(
+      eq(tickets.projectId, projectId),
+      eq(tickets.status, 'in_progress'),
+    )
+  )
+  .orderBy(desc(tickets.createdAt));
+
+// Insert
+const [newTicket] = await db
+  .insert(tickets)
+  .values({
+    id: crypto.randomUUID(),
+    projectId,
+    title,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  })
+  .returning();
+
+// Update
+const [updated] = await db
+  .update(tickets)
+  .set({ 
+    status: 'done',
+    updatedAt: new Date(),
+  })
+  .where(eq(tickets.id, id))
+  .returning();
+
+// Delete
+await db
+  .delete(tickets)
+  .where(eq(tickets.id, id));
+```
+
+### Joins and Relations
+```typescript
+// Using Drizzle relations (recommended)
+const ticketWithRelations = await db.query.tickets.findFirst({
+  where: eq(tickets.id, id),
+  with: {
+    project: true,
+    assignee: true,
+    reporter: true,
+    comments: {
+      with: { author: true },
+      orderBy: [desc(comments.createdAt)],
+    },
+  },
+});
+
+// Manual join when you need specific columns
+const ticketsWithAssignee = await db
+  .select({
+    ticket: tickets,
+    assigneeName: users.displayName,
+  })
+  .from(tickets)
+  .leftJoin(users, eq(tickets.assigneeId, users.id))
+  .where(eq(tickets.projectId, projectId));
+```
+
+### Pagination
+```typescript
+interface PaginationParams {
+  page: number;  // 1-indexed
+  pageSize: number;
+}
+
+async function getTicketsPaginated(
+  projectId: string,
+  { page, pageSize }: PaginationParams,
+) {
+  const offset = (page - 1) * pageSize;
+
+  const [items, countResult] = await Promise.all([
+    db
+      .select()
+      .from(tickets)
+      .where(eq(tickets.projectId, projectId))
+      .orderBy(desc(tickets.createdAt))
+      .limit(pageSize)
+      .offset(offset),
+    db
+      .select({ count: sql<number>`count(*)` })
+      .from(tickets)
+      .where(eq(tickets.projectId, projectId)),
+  ]);
+
+  const total = countResult[0]?.count ?? 0;
+
+  return {
+    items,
+    pagination: {
+      page,
+      pageSize,
+      total,
+      totalPages: Math.ceil(total / pageSize),
+    },
+  };
+}
+```
+
+### Transactions
+```typescript
+// Use transactions for operations that must be atomic
+async function createTicket(projectId: string, data: CreateTicketDto) {
+  return db.transaction(async (tx) => {
+    // Get next ticket number (must be in transaction to avoid race)
+    const [{ maxNumber }] = await tx
+      .select({ maxNumber: sql<number>`COALESCE(MAX(${tickets.number}), 0)` })
+      .from(tickets)
+      .where(eq(tickets.projectId, projectId));
+
+    // Create ticket with the next number
+    const [ticket] = await tx
+      .insert(tickets)
+      .values({
+        id: crypto.randomUUID(),
+        projectId,
+        number: maxNumber + 1,
+        ...data,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .returning();
+
+    return ticket;
+  });
+}
+```
+
+## Migrations
+
+### Migration File Structure
+```
+packages/server/src/database/
+├── migrations/
+│   ├── 0001_initial.sql
+│   ├── 0002_add_ticket_priority.sql
+│   └── meta/
+│       └── _journal.json
+├── migrate.ts
+└── schema.ts
+```
+
+### Creating Migrations
+```bash
+# Generate migration from schema changes
+pnpm drizzle-kit generate:sqlite
+
+# Apply migrations
+pnpm drizzle-kit push:sqlite  # Dev (direct push)
+pnpm tsx src/database/migrate.ts  # Production (programmatic)
+```
+
+### Migration Script
+```typescript
+// packages/server/src/database/migrate.ts
+import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
+import Database from 'better-sqlite3';
+
+const sqlite = new Database(process.env.DATABASE_PATH ?? './data/jirakli.db');
+const db = drizzle(sqlite);
+
+migrate(db, { migrationsFolder: './src/database/migrations' });
+
+console.log('Migrations complete');
+sqlite.close();
+```
+
+### Migration Best Practices
+- **Never edit existing migrations** — create new ones
+- **Test migrations on copy of production data** before deploying
+- **Make migrations reversible** when possible
+- **Keep migrations small and focused** — one change per migration
+- **Include data migrations** when schema changes require it
+
+## Performance Guidelines
+
+### Indexing Strategy
+- **Index foreign keys** — always
+- **Index columns used in WHERE** — for frequent queries
+- **Index columns used in ORDER BY** — if sorting large datasets
+- **Use composite indexes** — for queries filtering on multiple columns
+- **Don't over-index** — each index slows writes
+
+### Query Optimization
+```typescript
+// Bad: N+1 query
+const tickets = await db.select().from(tickets);
+for (const ticket of tickets) {
+  ticket.comments = await db
+    .select()
+    .from(comments)
+    .where(eq(comments.ticketId, ticket.id));
+}
+
+// Good: Single query with relation
+const tickets = await db.query.tickets.findMany({
+  with: { comments: true },
+});
+
+// Good: Manual join if you need control
+const tickets = await db
+  .select()
+  .from(tickets)
+  .leftJoin(comments, eq(tickets.id, comments.ticketId));
+```
+
+### SQLite-Specific Optimizations
+```typescript
+// Enable WAL mode for better concurrency (do once at startup)
+sqlite.pragma('journal_mode = WAL');
+
+// Enable foreign keys (SQLite has them off by default)
+sqlite.pragma('foreign_keys = ON');
+
+// Optimize for read-heavy workloads
+sqlite.pragma('synchronous = NORMAL');
+sqlite.pragma('cache_size = -64000'); // 64MB cache
+```
+
+## Data Integrity
+
+### Constraints
+```typescript
+export const tickets = sqliteTable('tickets', {
+  // NOT NULL for required fields
+  title: text('title').notNull(),
+  
+  // UNIQUE for natural keys
+  // (handled via uniqueIndex for composite)
+  
+  // FOREIGN KEY with appropriate action
+  projectId: text('project_id')
+    .notNull()
+    .references(() => projects.id, { onDelete: 'cascade' }),
+  
+  // CHECK constraints (via Zod at app layer, SQLite supports but Drizzle doesn't expose)
+});
+```
+
+### Application-Level Validation
+```typescript
+// Validate with Zod before insert
+const validated = insertTicketSchema.parse(input);
+await db.insert(tickets).values(validated);
+```
+
+## Don'ts
+
+- **Don't use raw SQL unless necessary** — Drizzle's type safety is valuable
+- **Don't store large blobs** — SQLite handles them but it's not ideal
+- **Don't ignore migrations in production** — always use proper migration flow
+- **Don't use ORM for complex analytics** — consider raw SQL or separate read model
+- **Don't trust client-provided IDs** — always generate UUIDs server-side
+- **Don't skip transactions** for multi-step operations
