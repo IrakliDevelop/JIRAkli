@@ -1,0 +1,94 @@
+<div class="create-page">
+  <div class="create-container">
+    <!-- Header -->
+    <header class="create-header">
+      <a routerLink="/projects" class="back-link">
+        <mat-icon>arrow_back</mat-icon>
+        Back to projects
+      </a>
+      <h1 class="create-header__title">Create project</h1>
+      <p class="create-header__subtitle">
+        You can change these details anytime in project settings.
+      </p>
+    </header>
+
+    <!-- Form Card -->
+    <div class="create-card">
+      @if (error()) {
+        <div class="error-banner">
+          <mat-icon>error_outline</mat-icon>
+          <span>{{ error() }}</span>
+        </div>
+      }
+
+      <form [formGroup]="form" (ngSubmit)="onSubmit()" class="create-form">
+        <div class="form-field">
+          <label class="form-field__label" for="name">
+            Name <span class="required">*</span>
+          </label>
+          <input
+            id="name"
+            type="text"
+            formControlName="name"
+            placeholder="e.g. Marketing Campaign"
+            class="form-field__input"
+            [class.form-field__input--error]="form.controls.name.touched && form.controls.name.errors"
+          />
+          @if (form.controls.name.touched && form.controls.name.errors) {
+            <span class="form-field__error">Project name is required</span>
+          }
+        </div>
+
+        <div class="form-field">
+          <label class="form-field__label" for="key">
+            Key <span class="required">*</span>
+          </label>
+          <input
+            id="key"
+            type="text"
+            formControlName="key"
+            placeholder="e.g. MKTG"
+            class="form-field__input form-field__input--key"
+            [class.form-field__input--error]="form.controls.key.touched && form.controls.key.errors"
+            maxlength="6"
+          />
+          <span class="form-field__hint">
+            2-6 uppercase letters. Used as prefix for issue keys (e.g. MKTG-123).
+          </span>
+          @if (form.controls.key.touched && form.controls.key.errors) {
+            <span class="form-field__error">Key must be 2-6 uppercase letters</span>
+          }
+        </div>
+
+        <div class="form-field">
+          <label class="form-field__label" for="description">
+            Description
+          </label>
+          <textarea
+            id="description"
+            formControlName="description"
+            placeholder="Describe your project's purpose and goals..."
+            class="form-field__textarea"
+            rows="4"
+          ></textarea>
+        </div>
+
+        <div class="form-actions">
+          <a routerLink="/projects" class="btn btn--subtle">Cancel</a>
+          <button 
+            type="submit" 
+            class="btn btn--primary"
+            [disabled]="loading()"
+          >
+            @if (loading()) {
+              <mat-spinner diameter="18"></mat-spinner>
+              <span>Creating...</span>
+            } @else {
+              <span>Create project</span>
+            }
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>

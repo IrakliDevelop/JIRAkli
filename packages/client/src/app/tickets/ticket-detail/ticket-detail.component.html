@@ -1,0 +1,175 @@
+<div class="ticket-page">
+  @if (loading()) {
+    <div class="loading-state">
+      <mat-spinner diameter="40"></mat-spinner>
+      <span>Loading issue...</span>
+    </div>
+  } @else if (error()) {
+    <div class="error-state">
+      <mat-icon>error_outline</mat-icon>
+      <h3>Unable to load issue</h3>
+      <p>{{ error() }}</p>
+    </div>
+  } @else if (ticket()) {
+    <!-- Header -->
+    <header class="ticket-header">
+      <div class="ticket-header__breadcrumb">
+        <a [routerLink]="['/projects', ticket()!.projectId]" class="breadcrumb-link">
+          <mat-icon>arrow_back</mat-icon>
+          Back to board
+        </a>
+      </div>
+      <div class="ticket-header__main">
+        <div class="ticket-header__key">
+          @if (project()) {
+            {{ project()!.key }}-{{ ticket()!.number }}
+          }
+        </div>
+        <div class="ticket-header__actions">
+          <button class="btn btn--subtle" [matMenuTriggerFor]="actionsMenu">
+            <mat-icon>more_horiz</mat-icon>
+          </button>
+          <mat-menu #actionsMenu="matMenu">
+            <button mat-menu-item (click)="deleteTicket()" class="danger-menu-item">
+              <mat-icon>delete</mat-icon>
+              <span>Delete issue</span>
+            </button>
+          </mat-menu>
+        </div>
+      </div>
+    </header>
+
+    <!-- Content -->
+    <div class="ticket-content">
+      <div class="ticket-main">
+        <!-- Title -->
+        <h1 class="ticket-title">{{ ticket()!.title }}</h1>
+
+        <!-- Description Section -->
+        <section class="ticket-section">
+          <h2 class="ticket-section__title">Description</h2>
+          <div class="ticket-section__content">
+            @if (ticket()!.description) {
+              <p class="ticket-description">{{ ticket()!.description }}</p>
+            } @else {
+              <p class="ticket-description ticket-description--empty">
+                Add a description...
+              </p>
+            }
+          </div>
+        </section>
+
+        <!-- Activity Section (placeholder) -->
+        <section class="ticket-section">
+          <h2 class="ticket-section__title">Activity</h2>
+          <div class="ticket-section__content">
+            <div class="activity-empty">
+              <mat-icon>chat_bubble_outline</mat-icon>
+              <span>No activity yet</span>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Sidebar -->
+      <aside class="ticket-sidebar">
+        <!-- Status -->
+        <div class="sidebar-field">
+          <label class="sidebar-field__label">Status</label>
+          <button 
+            class="status-dropdown"
+            [class]="'status-dropdown--' + ticket()!.status"
+            [matMenuTriggerFor]="statusMenu"
+          >
+            <span>{{ getStatusLabel(ticket()!.status) }}</span>
+            <mat-icon>expand_more</mat-icon>
+          </button>
+          <mat-menu #statusMenu="matMenu">
+            @for (status of statuses; track status) {
+              <button 
+                mat-menu-item 
+                (click)="updateStatus(status)"
+                [class.selected]="status === ticket()!.status"
+              >
+                <span class="status-indicator" [class]="'status-indicator--' + status"></span>
+                <span>{{ getStatusLabel(status) }}</span>
+              </button>
+            }
+          </mat-menu>
+        </div>
+
+        <!-- Priority -->
+        <div class="sidebar-field">
+          <label class="sidebar-field__label">Priority</label>
+          <button 
+            class="priority-dropdown"
+            [matMenuTriggerFor]="priorityMenu"
+          >
+            <span class="priority-indicator" [class]="'priority-indicator--' + ticket()!.priority">
+              @switch (ticket()!.priority) {
+                @case ('critical') {
+                  <mat-icon>keyboard_double_arrow_up</mat-icon>
+                }
+                @case ('high') {
+                  <mat-icon>keyboard_arrow_up</mat-icon>
+                }
+                @case ('medium') {
+                  <mat-icon>drag_handle</mat-icon>
+                }
+                @case ('low') {
+                  <mat-icon>keyboard_arrow_down</mat-icon>
+                }
+              }
+            </span>
+            <span>{{ ticket()!.priority | titlecase }}</span>
+            <mat-icon class="dropdown-arrow">expand_more</mat-icon>
+          </button>
+          <mat-menu #priorityMenu="matMenu">
+            @for (priority of priorities; track priority) {
+              <button 
+                mat-menu-item 
+                (click)="updatePriority(priority)"
+                [class.selected]="priority === ticket()!.priority"
+              >
+                <span class="priority-indicator" [class]="'priority-indicator--' + priority">
+                  @switch (priority) {
+                    @case ('critical') {
+                      <mat-icon>keyboard_double_arrow_up</mat-icon>
+                    }
+                    @case ('high') {
+                      <mat-icon>keyboard_arrow_up</mat-icon>
+                    }
+                    @case ('medium') {
+                      <mat-icon>drag_handle</mat-icon>
+                    }
+                    @case ('low') {
+                      <mat-icon>keyboard_arrow_down</mat-icon>
+                    }
+                  }
+                </span>
+                <span>{{ priority | titlecase }}</span>
+              </button>
+            }
+          </mat-menu>
+        </div>
+
+        <div class="sidebar-divider"></div>
+
+        <!-- Dates -->
+        <div class="sidebar-field sidebar-field--readonly">
+          <label class="sidebar-field__label">Created</label>
+          <span class="sidebar-field__value">
+            {{ ticket()!.createdAt | date:'medium' }}
+          </span>
+        </div>
+
+        <div class="sidebar-field sidebar-field--readonly">
+          <label class="sidebar-field__label">Updated</label>
+          <span class="sidebar-field__value">
+            {{ ticket()!.updatedAt | date:'medium' }}
+          </span>
+        </div>
+      </aside>
+    </div>
+  }
+</div>

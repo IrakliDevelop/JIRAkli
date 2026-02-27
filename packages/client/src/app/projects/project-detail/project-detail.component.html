@@ -1,0 +1,142 @@
+<div class="project-page">
+  @if (loading()) {
+    <div class="loading-state">
+      <mat-spinner diameter="40"></mat-spinner>
+      <span>Loading project...</span>
+    </div>
+  } @else if (error()) {
+    <div class="error-state">
+      <mat-icon>error_outline</mat-icon>
+      <h3>Unable to load project</h3>
+      <p>{{ error() }}</p>
+    </div>
+  } @else if (project()) {
+    <!-- Project Header -->
+    <header class="project-header">
+      <div class="project-header__breadcrumb">
+        <a routerLink="/projects" class="breadcrumb-link">
+          <mat-icon>folder</mat-icon>
+          Projects
+        </a>
+        <mat-icon class="breadcrumb-separator">chevron_right</mat-icon>
+        <span class="breadcrumb-current">{{ project()!.name }}</span>
+      </div>
+      <div class="project-header__main">
+        <div class="project-header__info">
+          <div class="project-header__icon">
+            <mat-icon>view_kanban</mat-icon>
+          </div>
+          <div>
+            <h1 class="project-header__title">{{ project()!.name }}</h1>
+            <span class="project-header__key">{{ project()!.key }} Board</span>
+          </div>
+        </div>
+        <div class="project-header__actions">
+          <a 
+            [routerLink]="['/projects', project()!.id, 'tickets', 'new']" 
+            class="btn btn--primary"
+          >
+            <mat-icon>add</mat-icon>
+            Create issue
+          </a>
+        </div>
+      </div>
+    </header>
+
+    <!-- Board -->
+    @if (ticketsLoading()) {
+      <div class="board-loading">
+        <mat-spinner diameter="32"></mat-spinner>
+        <span>Loading board...</span>
+      </div>
+    } @else {
+      <div class="kanban-board" cdkDropListGroup>
+        @for (column of columns(); track column.id) {
+          <div class="kanban-column">
+            <div class="kanban-column__header">
+              <span class="kanban-column__title">{{ column.title }}</span>
+              <span class="kanban-column__count">{{ column.tickets.length }}</span>
+            </div>
+            <div
+              class="kanban-column__cards"
+              cdkDropList
+              [cdkDropListData]="column.tickets"
+              [id]="column.id"
+              (cdkDropListDropped)="onDrop($event, column.status)"
+            >
+              @for (ticket of column.tickets; track ticket.id) {
+                <div 
+                  class="kanban-card" 
+                  cdkDrag
+                  (click)="openTicketPanel(ticket, $event)"
+                >
+                  <div class="kanban-card__header">
+                    <span class="kanban-card__key">
+                      {{ project()!.key }}-{{ ticket.number }}
+                    </span>
+                    <a 
+                      [routerLink]="['/tickets', ticket.id]"
+                      class="kanban-card__expand"
+                      matTooltip="Open in full page"
+                      (click)="$event.stopPropagation()"
+                    >
+                      <mat-icon>open_in_new</mat-icon>
+                    </a>
+                  </div>
+                  <div class="kanban-card__title">
+                    {{ ticket.title }}
+                  </div>
+                  <div class="kanban-card__footer">
+                    <div class="kanban-card__priority" [class]="'priority--' + ticket.priority">
+                      @switch (ticket.priority) {
+                        @case ('critical') {
+                          <mat-icon>keyboard_double_arrow_up</mat-icon>
+                        }
+                        @case ('high') {
+                          <mat-icon>keyboard_arrow_up</mat-icon>
+                        }
+                        @case ('medium') {
+                          <mat-icon>drag_handle</mat-icon>
+                        }
+                        @case ('low') {
+                          <mat-icon>keyboard_arrow_down</mat-icon>
+                        }
+                      }
+                    </div>
+                    <div class="kanban-card__avatar">
+                      <span>{{ getInitials(ticket) }}</span>
+                    </div>
+                  </div>
+                  <!-- Drag Preview -->
+                  <div *cdkDragPreview class="kanban-card kanban-card--preview">
+                    <div class="kanban-card__key">
+                      {{ project()!.key }}-{{ ticket.number }}
+                    </div>
+                    <div class="kanban-card__title">
+                      {{ ticket.title }}
+                    </div>
+                  </div>
+                </div>
+              }
+              @if (column.tickets.length === 0) {
+                <div class="kanban-column__empty">
+                  <span>No issues</span>
+                </div>
+              }
+            </div>
+          </div>
+        }
+      </div>
+    }
+
+    <!-- Ticket Panel -->
+    <app-ticket-panel
+      [ticketId]="selectedTicketId()"
+      [projectKey]="project()!.key"
+      [isOpen]="panelOpen()"
+      (closed)="closePanel()"
+      (ticketUpdated)="onTicketUpdated($event)"
+      (ticketDeleted)="onTicketDeleted($event)"
+    />
+  }
+</div>

@@ -1,0 +1,111 @@
+<div class="auth-page">
+  <!-- Decorative Background -->
+  <div class="auth-bg">
+    <div class="auth-bg__shape auth-bg__shape--1"></div>
+    <div class="auth-bg__shape auth-bg__shape--2"></div>
+    <div class="auth-bg__shape auth-bg__shape--3"></div>
+  </div>
+
+  <div class="auth-container">
+    <!-- Logo -->
+    <div class="auth-logo">
+      <app-logo [size]="48"></app-logo>
+      <span class="auth-logo__text">Jirakli</span>
+    </div>
+
+    <!-- Auth Card -->
+    <div class="auth-card">
+      <h1 class="auth-card__title">Create your account</h1>
+
+      @if (error()) {
+        <div class="auth-error">
+          <mat-icon>error_outline</mat-icon>
+          <span>{{ error() }}</span>
+        </div>
+      }
+
+      <form [formGroup]="form" (ngSubmit)="onSubmit()" class="auth-form">
+        <div class="auth-field">
+          <label class="auth-field__label" for="displayName">Full name</label>
+          <input
+            id="displayName"
+            type="text"
+            formControlName="displayName"
+            placeholder="Enter your full name"
+            class="auth-field__input"
+            [class.auth-field__input--error]="form.controls.displayName.touched && form.controls.displayName.errors"
+          />
+          @if (form.controls.displayName.touched && form.controls.displayName.errors) {
+            <span class="auth-field__error">Please enter your name</span>
+          }
+        </div>
+
+        <div class="auth-field">
+          <label class="auth-field__label" for="email">Email</label>
+          <input
+            id="email"
+            type="email"
+            formControlName="email"
+            placeholder="Enter your email"
+            class="auth-field__input"
+            [class.auth-field__input--error]="form.controls.email.touched && form.controls.email.errors"
+          />
+          @if (form.controls.email.touched && form.controls.email.errors) {
+            <span class="auth-field__error">Please enter a valid email address</span>
+          }
+        </div>
+
+        <div class="auth-field">
+          <label class="auth-field__label" for="password">Password</label>
+          <div class="auth-field__password-wrapper">
+            <input
+              id="password"
+              [type]="hidePassword() ? 'password' : 'text'"
+              formControlName="password"
+              placeholder="Create a password"
+              class="auth-field__input"
+              [class.auth-field__input--error]="form.controls.password.touched && form.controls.password.errors"
+            />
+            <button
+              type="button"
+              class="auth-field__toggle"
+              (click)="hidePassword.set(!hidePassword())"
+              [attr.aria-label]="hidePassword() ? 'Show password' : 'Hide password'"
+            >
+              <mat-icon>{{ hidePassword() ? 'visibility_off' : 'visibility' }}</mat-icon>
+            </button>
+          </div>
+          @if (form.controls.password.touched && form.controls.password.errors) {
+            <span class="auth-field__error">Password must be at least 8 characters</span>
+          }
+        </div>
+
+        <button
+          type="submit"
+          class="auth-submit"
+          [disabled]="loading()"
+        >
+          @if (loading()) {
+            <mat-spinner diameter="20"></mat-spinner>
+            <span>Creating account...</span>
+          } @else {
+            <span>Sign up</span>
+          }
+        </button>
+      </form>
+
+      <div class="auth-divider">
+        <span>OR</span>
+      </div>
+
+      <a routerLink="/auth/login" class="auth-alt-link">
+        Already have an account? Log in
+      </a>
+    </div>
+
+    <!-- Footer -->
+    <footer class="auth-footer">
+      <span>Jirakli — Project Management Made Simple</span>
+    </footer>
+  </div>
+</div>

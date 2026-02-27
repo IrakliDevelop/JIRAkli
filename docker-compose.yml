@@ -1,0 +1,15 @@
+services:
+  jirakli:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - jirakli-data:/app/data
+    environment:
+      - JWT_SECRET=${JWT_SECRET:-change-this-secret-in-production}
+      - PORT=3000
+      - DATABASE_PATH=/app/data/jirakli.db
+    restart: unless-stopped
+
+volumes:
+  jirakli-data:

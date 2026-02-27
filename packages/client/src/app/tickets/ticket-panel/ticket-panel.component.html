@@ -1,0 +1,194 @@
+<!-- Backdrop -->
+<div 
+  class="panel-backdrop" 
+  [class.panel-backdrop--visible]="isOpen()"
+  (click)="close()"
+></div>
+
+<!-- Panel -->
+<aside 
+  class="panel" 
+  [class.panel--open]="isOpen()"
+  (click)="$event.stopPropagation()"
+>
+  @if (loading()) {
+    <div class="panel-loading">
+      <mat-spinner diameter="32"></mat-spinner>
+      <span>Loading issue...</span>
+    </div>
+  } @else if (ticket()) {
+    <!-- Panel Header -->
+    <header class="panel-header">
+      <div class="panel-header__left">
+        <span class="panel-header__key">{{ projectKey() }}-{{ ticket()!.number }}</span>
+      </div>
+      <div class="panel-header__actions">
+        <a 
+          [routerLink]="['/tickets', ticket()!.id]"
+          class="panel-action"
+          matTooltip="Open in full page"
+          (click)="close()"
+        >
+          <mat-icon>open_in_full</mat-icon>
+        </a>
+        <button 
+          class="panel-action"
+          matTooltip="More actions"
+          [matMenuTriggerFor]="actionsMenu"
+        >
+          <mat-icon>more_horiz</mat-icon>
+        </button>
+        <mat-menu #actionsMenu="matMenu">
+          <button mat-menu-item (click)="copyLink()">
+            <mat-icon>link</mat-icon>
+            <span>Copy link</span>
+          </button>
+          <button mat-menu-item (click)="deleteTicket()" class="danger-item">
+            <mat-icon>delete</mat-icon>
+            <span>Delete issue</span>
+          </button>
+        </mat-menu>
+        <button 
+          class="panel-action"
+          matTooltip="Close panel"
+          (click)="close()"
+        >
+          <mat-icon>close</mat-icon>
+        </button>
+      </div>
+    </header>
+
+    <!-- Panel Content -->
+    <div class="panel-content">
+      <!-- Title -->
+      <h1 class="panel-title">{{ ticket()!.title }}</h1>
+
+      <!-- Quick Actions Bar -->
+      <div class="quick-actions">
+        <!-- Status -->
+        <button 
+          class="status-btn"
+          [class]="'status-btn--' + ticket()!.status"
+          [matMenuTriggerFor]="statusMenu"
+        >
+          <span>{{ getStatusLabel(ticket()!.status) }}</span>
+          <mat-icon>expand_more</mat-icon>
+        </button>
+        <mat-menu #statusMenu="matMenu">
+          @for (status of statuses; track status) {
+            <button 
+              mat-menu-item 
+              (click)="updateStatus(status)"
+              [class.selected]="status === ticket()!.status"
+            >
+              <span class="status-dot" [class]="'status-dot--' + status"></span>
+              <span>{{ getStatusLabel(status) }}</span>
+            </button>
+          }
+        </mat-menu>
+      </div>
+
+      <!-- Description Section -->
+      <section class="panel-section">
+        <h2 class="panel-section__title">
+          <mat-icon>description</mat-icon>
+          Description
+        </h2>
+        <div class="panel-section__content">
+          @if (ticket()!.description) {
+            <p class="description-text">{{ ticket()!.description }}</p>
+          } @else {
+            <p class="description-empty">Add a description...</p>
+          }
+        </div>
+      </section>
+
+      <!-- Details Section -->
+      <section class="panel-section">
+        <h2 class="panel-section__title">
+          <mat-icon>info</mat-icon>
+          Details
+        </h2>
+        <div class="details-grid">
+          <!-- Priority -->
+          <div class="detail-row">
+            <span class="detail-label">Priority</span>
+            <button 
+              class="detail-value detail-value--clickable"
+              [matMenuTriggerFor]="priorityMenu"
+            >
+              <span class="priority-icon" [class]="'priority-icon--' + ticket()!.priority">
+                @switch (ticket()!.priority) {
+                  @case ('critical') {
+                    <mat-icon>keyboard_double_arrow_up</mat-icon>
+                  }
+                  @case ('high') {
+                    <mat-icon>keyboard_arrow_up</mat-icon>
+                  }
+                  @case ('medium') {
+                    <mat-icon>drag_handle</mat-icon>
+                  }
+                  @case ('low') {
+                    <mat-icon>keyboard_arrow_down</mat-icon>
+                  }
+                }
+              </span>
+              <span>{{ ticket()!.priority | titlecase }}</span>
+            </button>
+            <mat-menu #priorityMenu="matMenu">
+              @for (priority of priorities; track priority) {
+                <button 
+                  mat-menu-item 
+                  (click)="updatePriority(priority)"
+                  [class.selected]="priority === ticket()!.priority"
+                >
+                  <span class="priority-icon" [class]="'priority-icon--' + priority">
+                    @switch (priority) {
+                      @case ('critical') {
+                        <mat-icon>keyboard_double_arrow_up</mat-icon>
+                      }
+                      @case ('high') {
+                        <mat-icon>keyboard_arrow_up</mat-icon>
+                      }
+                      @case ('medium') {
+                        <mat-icon>drag_handle</mat-icon>
+                      }
+                      @case ('low') {
+                        <mat-icon>keyboard_arrow_down</mat-icon>
+                      }
+                    }
+                  </span>
+                  <span>{{ priority | titlecase }}</span>
+                </button>
+              }
+            </mat-menu>
+          </div>
+
+          <!-- Created -->
+          <div class="detail-row">
+            <span class="detail-label">Created</span>
+            <span class="detail-value">{{ ticket()!.createdAt | date:'MMM d, yyyy' }}</span>
+          </div>
+
+          <!-- Updated -->
+          <div class="detail-row">
+            <span class="detail-label">Updated</span>
+            <span class="detail-value">{{ ticket()!.updatedAt | date:'MMM d, yyyy' }}</span>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Panel Footer -->
+    <footer class="panel-footer">
+      <a 
+        [routerLink]="['/tickets', ticket()!.id]"
+        class="btn btn--subtle"
+        (click)="close()"
+      >
+        <mat-icon>open_in_new</mat-icon>
+        Open full view
+      </a>
+    </footer>
+  }
+</aside>

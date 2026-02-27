@@ -1,12 +1,23 @@
-# See https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files for more about ignoring files.
+# Dependencies
+node_modules
 
-# compiled output
+# Build output
 dist
 tmp
 out-tsc
+*.js.map
 
-# dependencies
-node_modules
+# Database
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Environment
+.env
+.env.local
+.env.*.local
 
 # IDEs and editors
 /.idea
@@ -24,21 +35,27 @@ node_modules
 !.vscode/launch.json
 !.vscode/extensions.json
 
-# misc
-/.sass-cache
-/connect.lock
+# Testing
 /coverage
-/libpeerconnection.log
+
+# Logs
 npm-debug.log
 yarn-error.log
+pnpm-debug.log
 testem.log
-/typings
 
 # System Files
 .DS_Store
 Thumbs.db
 
-.nx/cache
-.nx/workspace-data
-
+# Angular
 .angular
+
+# NestJS
+.nest
+
+# Misc
+/.sass-cache
+/connect.lock
+/libpeerconnection.log
+/typings

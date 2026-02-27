@@ -1,0 +1,133 @@
+<div class="create-page">
+  <div class="create-container">
+    <!-- Header -->
+    <header class="create-header">
+      <a [routerLink]="['/projects', projectId]" class="back-link">
+        <mat-icon>arrow_back</mat-icon>
+        Back to board
+      </a>
+      <h1 class="create-header__title">Create issue</h1>
+      @if (project()) {
+        <p class="create-header__subtitle">
+          Creating issue in {{ project()!.name }}
+        </p>
+      }
+    </header>
+
+    <!-- Form Card -->
+    <div class="create-card">
+      @if (error()) {
+        <div class="error-banner">
+          <mat-icon>error_outline</mat-icon>
+          <span>{{ error() }}</span>
+        </div>
+      }
+
+      <form [formGroup]="form" (ngSubmit)="onSubmit()" class="create-form">
+        <div class="form-field">
+          <label class="form-field__label" for="title">
+            Summary <span class="required">*</span>
+          </label>
+          <input
+            id="title"
+            type="text"
+            formControlName="title"
+            placeholder="What needs to be done?"
+            class="form-field__input"
+            [class.form-field__input--error]="form.controls.title.touched && form.controls.title.errors"
+          />
+          @if (form.controls.title.touched && form.controls.title.errors) {
+            <span class="form-field__error">Summary is required</span>
+          }
+        </div>
+
+        <div class="form-field">
+          <label class="form-field__label" for="description">
+            Description
+          </label>
+          <textarea
+            id="description"
+            formControlName="description"
+            placeholder="Add more details about this issue..."
+            class="form-field__textarea"
+            rows="6"
+          ></textarea>
+          <span class="form-field__hint">
+            Describe the issue in detail. You can add more information later.
+          </span>
+        </div>
+
+        <div class="form-field">
+          <label class="form-field__label">Priority</label>
+          <button 
+            type="button"
+            class="priority-select"
+            [matMenuTriggerFor]="priorityMenu"
+          >
+            <span class="priority-indicator" [class]="'priority-indicator--' + selectedPriority()">
+              @switch (selectedPriority()) {
+                @case ('critical') {
+                  <mat-icon>keyboard_double_arrow_up</mat-icon>
+                }
+                @case ('high') {
+                  <mat-icon>keyboard_arrow_up</mat-icon>
+                }
+                @case ('medium') {
+                  <mat-icon>drag_handle</mat-icon>
+                }
+                @case ('low') {
+                  <mat-icon>keyboard_arrow_down</mat-icon>
+                }
+              }
+            </span>
+            <span>{{ selectedPriority() | titlecase }}</span>
+            <mat-icon class="dropdown-arrow">expand_more</mat-icon>
+          </button>
+          <mat-menu #priorityMenu="matMenu">
+            @for (priority of priorities; track priority) {
+              <button 
+                mat-menu-item 
+                (click)="selectPriority(priority)"
+                [class.selected]="priority === selectedPriority()"
+              >
+                <span class="priority-indicator" [class]="'priority-indicator--' + priority">
+                  @switch (priority) {
+                    @case ('critical') {
+                      <mat-icon>keyboard_double_arrow_up</mat-icon>
+                    }
+                    @case ('high') {
+                      <mat-icon>keyboard_arrow_up</mat-icon>
+                    }
+                    @case ('medium') {
+                      <mat-icon>drag_handle</mat-icon>
+                    }
+                    @case ('low') {
+                      <mat-icon>keyboard_arrow_down</mat-icon>
+                    }
+                  }
+                </span>
+                <span>{{ priority | titlecase }}</span>
+              </button>
+            }
+          </mat-menu>
+        </div>
+
+        <div class="form-actions">
+          <a [routerLink]="['/projects', projectId]" class="btn btn--subtle">Cancel</a>
+          <button 
+            type="submit" 
+            class="btn btn--primary"
+            [disabled]="loading()"
+          >
+            @if (loading()) {
+              <mat-spinner diameter="18"></mat-spinner>
+              <span>Creating...</span>
+            } @else {
+              <span>Create issue</span>
+            }
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>

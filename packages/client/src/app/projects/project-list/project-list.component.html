@@ -1,0 +1,76 @@
+<div class="projects-page">
+  <!-- Page Header -->
+  <header class="page-header">
+    <div class="page-header__content">
+      <h1 class="page-header__title">Projects</h1>
+      <p class="page-header__subtitle">View and manage all your projects</p>
+    </div>
+    <a routerLink="/projects/new" class="btn btn--primary">
+      <mat-icon>add</mat-icon>
+      Create project
+    </a>
+  </header>
+
+  @if (loading()) {
+    <div class="loading-state">
+      <mat-spinner diameter="40"></mat-spinner>
+      <span>Loading projects...</span>
+    </div>
+  } @else if (error()) {
+    <div class="error-state">
+      <mat-icon>error_outline</mat-icon>
+      <h3>Unable to load projects</h3>
+      <p>{{ error() }}</p>
+      <button class="btn btn--primary" (click)="loadProjects()">
+        Try again
+      </button>
+    </div>
+  } @else if (projects().length === 0) {
+    <div class="empty-state">
+      <div class="empty-state__icon">
+        <svg width="120" height="120" viewBox="0 0 120 120" fill="none">
+          <rect x="20" y="30" width="80" height="60" rx="4" fill="var(--color-neutral-200)"/>
+          <rect x="28" y="42" width="40" height="4" rx="2" fill="var(--color-neutral-400)"/>
+          <rect x="28" y="52" width="64" height="4" rx="2" fill="var(--color-neutral-300)"/>
+          <rect x="28" y="62" width="64" height="4" rx="2" fill="var(--color-neutral-300)"/>
+          <rect x="28" y="72" width="32" height="4" rx="2" fill="var(--color-neutral-300)"/>
+          <circle cx="90" cy="85" r="20" fill="var(--color-primary-500)"/>
+          <path d="M90 77v16M82 85h16" stroke="white" stroke-width="3" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <h2 class="empty-state__title">No projects yet</h2>
+      <p class="empty-state__description">
+        Create your first project to start tracking issues and collaborating with your team.
+      </p>
+      <a routerLink="/projects/new" class="btn btn--primary btn--large">
+        <mat-icon>add</mat-icon>
+        Create your first project
+      </a>
+    </div>
+  } @else {
+    <!-- Projects Grid -->
+    <div class="projects-grid">
+      @for (project of projects(); track project.id) {
+        <a [routerLink]="['/projects', project.id]" class="project-card">
+          <div class="project-card__header">
+            <div class="project-card__icon">
+              <mat-icon>folder</mat-icon>
+            </div>
+            <span class="project-card__key">{{ project.key }}</span>
+          </div>
+          <h3 class="project-card__name">{{ project.name }}</h3>
+          @if (project.description) {
+            <p class="project-card__description">{{ project.description }}</p>
+          }
+          <div class="project-card__footer">
+            <div class="project-card__meta">
+              <mat-icon>confirmation_number</mat-icon>
+              <span>Software project</span>
+            </div>
+            <mat-icon class="project-card__arrow">arrow_forward</mat-icon>
+          </div>
+        </a>
+      }
+    </div>
+  }
+</div>
